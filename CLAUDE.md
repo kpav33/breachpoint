@@ -31,6 +31,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 
 ## Workflow
 
+- Inside `src/core/`, relative imports use explicit `.ts` extensions (e.g. `from './types.ts'`) so core runs directly under `node --experimental-strip-types` — used for headless sim testing, required by the future server.
 - Gameplay constants (speeds, weapon stats, cone angle, economy numbers) always live in `core/config.ts` — never hardcode them at usage sites.
 - Extend the debug overlay (backtick toggle) whenever you add a system that has invisible state (rays, polygons, bot states, paths).
 - After completing a phase: run lint + build, summarize what changed, and update this file if commands or conventions changed. Do not start the next phase unprompted.
