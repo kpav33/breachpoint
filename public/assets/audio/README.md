@@ -17,6 +17,10 @@ shippable) or Freesound.org (verify each license).
 | `hit.wav` | hit confirm, local shooter only (UI, non-positional) |
 | `hurt.wav` | taking damage (UI, non-positional) |
 | `death.wav` | any player death (positional) |
+| `bomb_plant.wav` | bomb armed (positional) |
+| `bomb_beep.wav` | planted-bomb countdown blip (positional, rate accelerates) |
+| `bomb_defused.wav` | successful defuse (positional) |
+| `bomb_explode.wav` | detonation (positional, map-wide range) |
 
 If a replacement is mono 22 kHz it drops in 1:1; other formats Phaser
 handles fine too (44.1 kHz, stereo, ogg — update the extension in

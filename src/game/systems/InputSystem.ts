@@ -8,7 +8,7 @@ import type { InputCommand, Vec2 } from '../../core/types';
  */
 export class InputSystem {
   private readonly keys: Record<
-    'w' | 'a' | 's' | 'd' | 'shift' | 'r' | 'one' | 'two' | 'three',
+    'w' | 'a' | 's' | 'd' | 'shift' | 'r' | 'e' | 'one' | 'two' | 'three',
     Phaser.Input.Keyboard.Key
   >;
   private wheelDelta = 0;
@@ -24,6 +24,7 @@ export class InputSystem {
       d: kb.addKey(K.D),
       shift: kb.addKey(K.SHIFT),
       r: kb.addKey(K.R),
+      e: kb.addKey(K.E),
       one: kb.addKey(K.ONE),
       two: kb.addKey(K.TWO),
       three: kb.addKey(K.THREE),
@@ -48,6 +49,7 @@ export class InputSystem {
     let buttons = 0;
     if (pointer.isDown) buttons |= Buttons.Shoot;
     if (this.keys.shift.isDown) buttons |= Buttons.Walk;
+    if (this.keys.e.isDown) buttons |= Buttons.Use; // held: plant/defuse
     if (JustDown(this.keys.r)) buttons |= Buttons.Reload;
     if (JustDown(this.keys.one)) buttons |= Buttons.SelectPrimary;
     if (JustDown(this.keys.two)) buttons |= Buttons.SelectSecondary;

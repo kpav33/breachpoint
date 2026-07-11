@@ -29,6 +29,45 @@ export const VISION_RANGE = 900;
 /** Playtesting/easy-mode toggle: ignore the cone, see all around. */
 export const FULL_CIRCLE_VISION = false;
 
+// --- Match structure (Phase 7) --------------------------------------------
+/** Players per team (1 human + bots on T, all bots on CT). */
+export const TEAM_SIZE = 3;
+export const FRIENDLY_FIRE = false;
+/** First team to this many round wins takes the match. */
+export const ROUNDS_TO_WIN = 13;
+
+export const WARMUP_TIME_SEC = 3;
+/** Buy/freeze time at round start — players can buy but not move. */
+export const BUY_TIME_SEC = 8;
+/** LIVE round length; expiry without a plant is a CT win. */
+export const ROUND_TIME_SEC = 100;
+/** Pause between rounds showing the result. */
+export const ROUND_END_TIME_SEC = 4;
+
+// Economy — simplified four-number model (see docs/PLAN.md design decisions).
+export const START_MONEY = 800;
+export const KILL_REWARD = 300;
+export const WIN_REWARD = 3250;
+/** Base loss bonus + escalation per consecutive loss, and its cap. */
+export const LOSS_BONUS_BASE = 1400;
+export const LOSS_BONUS_STEP = 500;
+export const LOSS_BONUS_MAX = 3400;
+export const MONEY_CAP = 16000;
+export const DEFUSE_KIT_PRICE = 400;
+
+// Bomb.
+export const BOMB_PLANT_TIME_SEC = 3;
+export const BOMB_TIMER_SEC = 40;
+export const BOMB_DEFUSE_TIME_SEC = 10;
+export const BOMB_DEFUSE_KIT_TIME_SEC = 5;
+/** Max reach to start defusing a planted bomb, px. */
+export const BOMB_DEFUSE_RANGE_PX = 60;
+/** Walking over a dropped bomb within this range picks it up (T only). */
+export const BOMB_PICKUP_RANGE_PX = 32;
+/** Explosion: full damage at the bomb, linear falloff to zero at the edge. */
+export const BOMB_DAMAGE = 500;
+export const BOMB_RADIUS_PX = 550;
+
 // --- Bots (Phase 6) -------------------------------------------------------
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 
@@ -106,6 +145,8 @@ export const BOT_STRAFE_MAX_SEC = 0.9;
 export const BOT_ENGAGE_RANGE_PX = 520;
 /** Aim error is re-rolled at this interval so it wanders, not vibrates. */
 export const BOT_AIM_JITTER_SEC = 0.12;
+/** Aim sweep speed while standing guard on an objective, rad/s. */
+export const BOT_GUARD_TURN_RATE = 1.2;
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   knife: {

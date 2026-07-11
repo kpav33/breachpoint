@@ -45,6 +45,16 @@ function nearestWalkable(
 }
 
 /**
+ * Nearest walkable tile center to a world point (the point itself may be
+ * inside a wall — e.g. a bombsite center occupied by a crate).
+ */
+export function walkablePointNear(grid: MapGrid, pos: Vec2, maxRadius = 4): Vec2 | null {
+  const ts = grid.tileSize;
+  const t = nearestWalkable(grid, Math.floor(pos.x / ts), Math.floor(pos.y / ts), maxRadius);
+  return t ? tileCenter(grid, t.tx, t.ty) : null;
+}
+
+/**
  * A* from `start` to `goal` (both world px). Diagonals allowed only when
  * both adjacent orthogonal tiles are walkable (no corner cutting). A goal
  * inside a solid tile snaps to the nearest walkable one. Returns waypoints

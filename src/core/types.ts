@@ -33,6 +33,8 @@ export interface InputCommand {
   buttons: number;
 }
 
+export type Team = 'T' | 'CT';
+
 export type WeaponId = 'knife' | 'pistol' | 'smg' | 'rifle' | 'sniper';
 
 /** Static weapon definition — the table itself lives in config.ts. */
@@ -72,6 +74,7 @@ export interface WeaponSlot {
 
 export interface PlayerState {
   id: string;
+  team: Team;
   pos: Vec2;
   vel: Vec2;
   angle: number;

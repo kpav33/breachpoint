@@ -152,3 +152,63 @@ for (const [i, seed] of [77, 88, 99].entries()) {
     }),
   );
 }
+
+// --- Bomb set (Phase 7) ----------------------------------------------------
+
+// Plant confirm: two quick ascending chirps.
+{
+  const n = secs(0.3);
+  writeWav(
+    'bomb_plant.wav',
+    Array.from({ length: n }, (_, i) => {
+      const t = i / RATE;
+      const seg = t < 0.15 ? 0 : 1;
+      const lt = t - seg * 0.15;
+      const f = (seg === 0 ? 620 : 830) + 400 * lt;
+      return Math.sin(2 * Math.PI * f * lt) * Math.exp(-28 * lt) * 0.5;
+    }),
+  );
+}
+
+// Countdown beep: short square-ish blip.
+{
+  const n = secs(0.08);
+  writeWav(
+    'bomb_beep.wav',
+    Array.from({ length: n }, (_, i) => {
+      const t = i / RATE;
+      return Math.sign(Math.sin(2 * Math.PI * 880 * t)) * Math.exp(-40 * t) * 0.3;
+    }),
+  );
+}
+
+// Defused: gentle descending "all clear" two-tone.
+{
+  const n = secs(0.5);
+  writeWav(
+    'bomb_defused.wav',
+    Array.from({ length: n }, (_, i) => {
+      const t = i / RATE;
+      const seg = t < 0.22 ? 0 : 1;
+      const lt = t - seg * 0.22;
+      const f = seg === 0 ? 740 : 520;
+      return Math.sin(2 * Math.PI * f * lt) * Math.exp(-14 * lt) * 0.45;
+    }),
+  );
+}
+
+// Explosion: heavy lowpassed noise + sub sine, long tail.
+{
+  const n = secs(1.3);
+  const rand = rng(333);
+  let noise = Array.from({ length: n }, () => rand() * 2 - 1);
+  noise = lowpass(noise, 0.12);
+  writeWav(
+    'bomb_explode.wav',
+    noise.map((x, i) => {
+      const t = i / RATE;
+      const sub = Math.sin(2 * Math.PI * (55 - 20 * Math.min(t, 1)) * t) * Math.exp(-4 * t) * 0.8;
+      return x * Math.exp(-5 * t) * 0.9 + sub;
+    }),
+  );
+}

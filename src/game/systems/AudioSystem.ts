@@ -15,6 +15,11 @@ const SOUNDS = {
   hit: { vol: 0.45, range: 0 },
   hurt: { vol: 0.55, range: 0 },
   death: { vol: 0.65, range: 800 },
+  bomb_plant: { vol: 0.6, range: 1000 },
+  bomb_beep: { vol: 0.5, range: 1800 },
+  bomb_defused: { vol: 0.6, range: 1200 },
+  // The whole map hears the bomb go off.
+  bomb_explode: { vol: 0.9, range: 4000 },
 } as const;
 export type SoundKey = keyof typeof SOUNDS;
 

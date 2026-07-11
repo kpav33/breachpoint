@@ -4,10 +4,12 @@ import type {
   InputCommand,
   PlayerState,
   SimMap,
+  Team,
   Vec2,
   WeaponId,
 } from './types.ts';
 import {
+  FRIENDLY_FIRE,
   MOVE_SPEED,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
@@ -25,6 +27,7 @@ export function createGameState(rngSeed = 0x9e3779b9): GameState {
 
 export function createPlayer(
   id: string,
+  team: Team,
   x: number,
   y: number,
   primary?: WeaponId,
@@ -32,6 +35,7 @@ export function createPlayer(
   const slots = defaultLoadout(primary);
   return {
     id,
+    team,
     pos: { x, y },
     vel: { x: 0, y: 0 },
     angle: 0,
@@ -59,6 +63,24 @@ export function respawnPlayer(state: GameState, playerId: string, pos: Vec2): vo
   p.fireCooldown = 0;
   p.reloadRemaining = 0;
   p.bloomDeg = 0;
+}
+
+/**
+ * Apply damage and emit the death event. The only way hp goes down —
+ * gunfire and match-layer sources (bomb explosion) both route through here.
+ */
+export function damagePlayer(
+  state: GameState,
+  playerId: string,
+  damage: number,
+  killerId: string,
+): void {
+  const p = state.players[playerId];
+  if (!p || p.hp <= 0) return;
+  p.hp = Math.max(0, p.hp - damage);
+  if (p.hp === 0) {
+    state.events.push({ type: 'death', playerId: p.id, killerId });
+  }
 }
 
 /** Deterministic xorshift32 in [0, 1) — all sim randomness rolls through here. */
@@ -184,6 +206,8 @@ function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
   }
   for (const q of Object.values(state.players)) {
     if (q.id === shooter.id || q.hp <= 0) continue; // never hit yourself
+    // With friendly fire off, bullets pass through teammates entirely.
+    if (!FRIENDLY_FIRE && q.team === shooter.team) continue;
     const t = rayCircleDist(shooter.pos, dir, q.pos, PLAYER_RADIUS);
     if (t !== null && t < hitDist) {
       hitDist = t;
@@ -193,10 +217,7 @@ function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
   }
 
   if (victim) {
-    victim.hp = Math.max(0, victim.hp - Math.round(damageAtRange(def, hitDist)));
-    if (victim.hp === 0) {
-      state.events.push({ type: 'death', playerId: victim.id, killerId: shooter.id });
-    }
+    damagePlayer(state, victim.id, Math.round(damageAtRange(def, hitDist)), shooter.id);
   }
 
   const muzzle = PLAYER_RADIUS + 2;

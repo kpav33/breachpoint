@@ -10,6 +10,7 @@ import {
   BOT_AIM_JITTER_SEC,
   BOT_ENGAGE_RANGE_PX,
   BOT_FOOTSTEP_MIN_SPEED,
+  BOT_GUARD_TURN_RATE,
   BOT_REPATH_SEC,
   BOT_SEARCH_SEC,
   BOT_SEARCH_TURN_RATE,
@@ -24,6 +25,19 @@ import {
 import type { BotProfile } from '../../core/config';
 
 export type BotState = 'patrol' | 'engage' | 'hunt' | 'retreat';
+
+/**
+ * A standing order from the match layer: go somewhere and either hold E
+ * there (plant/defuse) or stand guard. Combat states always take priority;
+ * with no objective the bot free-roams between its roam points.
+ */
+export interface BotObjective {
+  pos: Vec2;
+  /** Consider the objective reached within this range, px. */
+  radiusPx: number;
+  /** Hold the Use button once in range (plant/defuse). */
+  holdUse?: boolean;
+}
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -49,12 +63,15 @@ export class BotController {
   private strafeLeft = 0;
   private searchLeft = 0;
   private searchAngle = 0;
+  private objective: BotObjective | null = null;
+  private onStation = false;
+  private guardAngle = 0;
 
   private rngState: number;
 
   constructor(
     readonly id: string,
-    private readonly enemyIds: string[],
+    private enemyIds: string[],
     private readonly profile: BotProfile,
     private readonly map: MapData,
     /** Points the bot roams between while it has nothing better to do. */
@@ -62,6 +79,25 @@ export class BotController {
     seed: number,
   ) {
     this.rngState = seed | 0 || 1;
+  }
+
+  /** Set who this bot fights (rosters may not exist yet at construction). */
+  setEnemies(ids: string[]): void {
+    this.enemyIds = ids;
+  }
+
+  /** Replace the standing order (null = free roam). */
+  setObjective(obj: BotObjective | null): void {
+    const moved =
+      (obj === null) !== (this.objective === null) ||
+      (obj !== null &&
+        this.objective !== null &&
+        Math.hypot(obj.pos.x - this.objective.pos.x, obj.pos.y - this.objective.pos.y) > 32);
+    this.objective = obj;
+    if (moved) {
+      this.onStation = false;
+      if (this.state === 'patrol') this.clearPath();
+    }
   }
 
   /** Forget everything — call on (re)spawn. */
@@ -78,6 +114,7 @@ export class BotController {
     this.burstLeft = 0;
     this.burstPause = 0;
     this.searchLeft = 0;
+    this.onStation = false;
   }
 
   /** Gunshots set last-known-position when in earshot (walls don't block sound). */
@@ -259,7 +296,15 @@ export class BotController {
         best = p;
       }
     }
-    if (best) this.navigate(me, best, cmd, dt);
+    if (best) {
+      // Reaching safety ends the retreat — forget the threat and get back to
+      // the objective, or a wounded bot would hide for the rest of the round.
+      if (!target && Math.hypot(best.x - me.pos.x, best.y - me.pos.y) <= BOT_WAYPOINT_REACHED_PX * 2) {
+        this.lastKnown = null;
+        return;
+      }
+      this.navigate(me, best, cmd, dt);
+    }
 
     // Keep shooting over the shoulder while falling back.
     if (target) {
@@ -271,11 +316,38 @@ export class BotController {
   }
 
   private doPatrol(me: PlayerState, cmd: InputCommand, dt: number): void {
+    if (this.objective) {
+      this.doObjective(me, this.objective, cmd, dt);
+      return;
+    }
     if (!this.pathGoal || this.arrived()) {
       const goal = this.pickRoamPoint(me.pos);
       if (goal) this.setPath(me, goal);
     }
     this.followPath(me, cmd, dt);
+  }
+
+  /** Travel to the objective, then plant/defuse or stand guard sweeping. */
+  private doObjective(me: PlayerState, obj: BotObjective, cmd: InputCommand, dt: number): void {
+    const dist = Math.hypot(obj.pos.x - me.pos.x, obj.pos.y - me.pos.y);
+    if (dist > obj.radiusPx) {
+      this.onStation = false;
+      this.navigate(me, obj.pos, cmd, dt);
+      return;
+    }
+    if (!this.onStation) {
+      this.onStation = true;
+      this.guardAngle = me.angle;
+      this.clearPath();
+    }
+    if (obj.holdUse) {
+      // Stand still (plant/defuse progress cancels on movement) and hold E.
+      cmd.aimAngle = dist > 1 ? Math.atan2(obj.pos.y - me.pos.y, obj.pos.x - me.pos.x) : me.angle;
+      cmd.buttons |= Buttons.Use;
+    } else {
+      this.guardAngle += BOT_GUARD_TURN_RATE * dt;
+      cmd.aimAngle = this.guardAngle;
+    }
   }
 
   // --- Firing -----------------------------------------------------------

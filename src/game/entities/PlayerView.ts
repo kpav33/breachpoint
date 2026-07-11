@@ -13,6 +13,7 @@ export class PlayerView extends Phaser.GameObjects.Container {
   private readonly aimBody: Phaser.GameObjects.Container;
   private readonly circle: Phaser.GameObjects.Arc;
   private readonly hpFill: Phaser.GameObjects.Rectangle;
+  private readonly bombMarker: Phaser.GameObjects.Rectangle;
   private readonly baseColor: number;
   private flashUntil = 0;
 
@@ -28,8 +29,12 @@ export class PlayerView extends Phaser.GameObjects.Container {
     const barY = -PLAYER_RADIUS - 8;
     const hpBg = scene.add.rectangle(0, barY, HP_BAR_WIDTH, 4, 0x0d0f12, 0.8);
     this.hpFill = scene.add.rectangle(0, barY, HP_BAR_WIDTH, 4, 0x66cc66);
+    // Bomb-carrier tag beside the HP bar (screen-aligned, doesn't rotate).
+    this.bombMarker = scene.add
+      .rectangle(HP_BAR_WIDTH / 2 + 7, barY, 6, 6, 0xff9500)
+      .setVisible(false);
 
-    this.add([this.aimBody, hpBg, this.hpFill]);
+    this.add([this.aimBody, hpBg, this.hpFill, this.bombMarker]);
     this.setDepth(5);
     scene.add.existing(this);
   }
@@ -44,6 +49,10 @@ export class PlayerView extends Phaser.GameObjects.Container {
     this.hpFill.width = HP_BAR_WIDTH * f;
     this.hpFill.x = (-HP_BAR_WIDTH * (1 - f)) / 2;
     this.hpFill.fillColor = f > 0.5 ? 0x66cc66 : f > 0.25 ? 0xd9b24a : 0xd9534f;
+  }
+
+  setBombCarrier(carrying: boolean): void {
+    this.bombMarker.setVisible(carrying);
   }
 
   /** Brief white flash when taking a hit. */

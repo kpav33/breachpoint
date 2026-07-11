@@ -1,23 +1,36 @@
 import Phaser from 'phaser';
 import {
+  BOMB_DEFUSE_KIT_TIME_SEC,
+  BOMB_DEFUSE_RANGE_PX,
+  BOMB_DEFUSE_TIME_SEC,
+  BOMB_PLANT_TIME_SEC,
+  BOMB_TIMER_SEC,
   BOT_DIFFICULTY,
   BOT_PROFILES,
+  DEFUSE_KIT_PRICE,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
+  START_MONEY,
+  TEAM_SIZE,
   TICK_RATE,
   WEAPONS,
 } from '../core/config';
-import type { GameState, Vec2, WeaponId } from '../core/types';
+import type { GameState, InputCommand, Team, Vec2, WeaponId } from '../core/types';
 import type { MapData } from '../core/map';
-import {
-  applyInput,
-  createGameState,
-  createPlayer,
-  respawnPlayer,
-} from '../core/simulation';
+import { applyInput, createGameState, createPlayer } from '../core/simulation';
 import { isWall } from '../core/collision';
 import { activeWeapon, currentSpreadDeg, givePrimary } from '../core/weapons';
 import { canSee } from '../core/vision';
+import { walkablePointNear } from '../core/pathfinding';
+import {
+  aliveCount,
+  canBuy,
+  createMatchState,
+  movementFrozen,
+  tryBuy,
+  updateMatch,
+} from '../match/MatchState';
+import type { MatchState } from '../match/MatchState';
 import { InputSystem } from '../game/systems/InputSystem';
 import { EffectsSystem } from '../game/systems/EffectsSystem';
 import { VisionSystem } from '../game/systems/VisionSystem';
@@ -26,14 +39,19 @@ import { PlayerView } from '../game/entities/PlayerView';
 import { BotController } from '../game/bots/BotController';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
+import type { BuyMenuItem, HudData, HudSource, ScoreboardRow } from './UIScene';
+import { UIScene } from './UIScene';
 
-const PLAYER_ID = 'p1';
-/** 1v3 deathmatch vs bots until Phase 7 brings teams and rounds. */
-const BOT_LOADOUTS: { id: string; weapon: WeaponId; color: number }[] = [
-  { id: 'bot1', weapon: 'smg', color: 0xd9534f },
-  { id: 'bot2', weapon: 'rifle', color: 0xd97b3c },
-  { id: 'bot3', weapon: 'pistol', color: 0xc94f70 },
+const HUMAN_ID = 'p1';
+const T_BOT_COLORS = [0x3d8fd9, 0x62b8e8];
+const CT_BOT_COLORS = [0xd9534f, 0xd97b3c, 0xc94f70, 0xe06666, 0xb84a5e];
+const BUY_ITEMS: { item: WeaponId | 'kit'; label: string }[] = [
+  { item: 'smg', label: 'SMG' },
+  { item: 'rifle', label: 'Rifle' },
+  { item: 'sniper', label: 'Sniper' },
+  { item: 'kit', label: 'Defuse kit' },
 ];
+
 const FIXED_DT = 1 / TICK_RATE;
 /** Cap per-frame delta so a background tab doesn't spiral the accumulator. */
 const MAX_FRAME_DELTA_MS = 250;
@@ -45,27 +63,35 @@ interface RenderSnapshot {
 }
 
 /**
- * Thin orchestrator: owns the fixed-timestep loop, feeds InputCommands to
- * the core simulation (from the keyboard and from bot brains alike), drains
- * SimEvents into effects, renders interpolated state. No game logic here.
+ * Thin orchestrator: fixed-timestep loop feeding InputCommands (keyboard +
+ * bot brains) into core/simulation, match rules layered on via
+ * match/MatchState, SimEvents/MatchEvents drained into effects/audio/HUD.
+ * No game logic here.
  */
-export class GameScene extends Phaser.Scene {
+export class GameScene extends Phaser.Scene implements HudSource {
   private state!: GameState;
+  private match!: MatchState;
   private map!: MapData;
   private inputSystem!: InputSystem;
   private effects!: EffectsSystem;
   private vision!: VisionSystem;
   private audio!: AudioSystem;
   private views!: Record<string, PlayerView>;
-  private bots!: Record<string, BotController>;
-  private botSpawns!: Record<string, Vec2>;
+  private bots: Record<string, BotController> = {};
+  private names: Record<string, string> = { bomb: 'the bomb' };
+  private tIds: string[] = [];
+  private ctIds: string[] = [];
+  /** Bombsite centers snapped to walkable tiles (bot plant/defend anchors). */
+  private siteAnchors: Vec2[] = [];
   private debug!: DebugOverlay;
-  private ammoText!: Phaser.GameObjects.Text;
-  private scoreText!: Phaser.GameObjects.Text;
+  private ui!: UIScene;
+  private bombGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
   private damageIndicators: { angle: number; age: number }[] = [];
-  private kills = 0;
-  private deaths = 0;
+  private banner: { text: string; sub: string; ttl: number } | null = null;
+  private lastPlantPos: Vec2 = { x: 0, y: 0 };
+  private beepAcc = 0;
+  private followedId: string | null = null;
 
   private accumulator = 0;
   private prev: Record<string, RenderSnapshot> = {};
@@ -81,47 +107,34 @@ export class GameScene extends Phaser.Scene {
     const { grid } = this.map;
 
     this.state = createGameState();
-    const spawn = this.map.spawnsT[0];
-    this.state.players[PLAYER_ID] = createPlayer(PLAYER_ID, spawn.x, spawn.y, 'rifle');
+    this.views = {};
+    this.buildRoster();
+    this.match = createMatchState(Object.keys(this.state.players), START_MONEY);
+
+    this.siteAnchors = this.map.bombsites.map((s) => {
+      const center = { x: s.x + s.width / 2, y: s.y + s.height / 2 };
+      return walkablePointNear(grid, center) ?? center;
+    });
 
     this.inputSystem = new InputSystem(this);
     this.effects = new EffectsSystem(this, grid.width * grid.tileSize, grid.height * grid.tileSize);
     this.vision = new VisionSystem(this, this.map.segments);
     this.audio = new AudioSystem(this);
+    this.bombGfx = this.add.graphics().setDepth(4);
     this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
-    this.views = { [PLAYER_ID]: new PlayerView(this, spawn.x, spawn.y) };
-    this.prev[PLAYER_ID] = { x: spawn.x, y: spawn.y, angle: 0 };
-
-    this.spawnBots();
 
     this.cameras.main.setBounds(0, 0, grid.width * grid.tileSize, grid.height * grid.tileSize);
-    this.cameras.main.startFollow(this.views[PLAYER_ID]);
-
-    this.ammoText = this.add
-      .text(12, this.scale.height - 30, '', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#c8d2dc',
-      })
-      .setScrollFactor(0)
-      .setDepth(500);
-    this.scoreText = this.add
-      .text(this.scale.width / 2, 12, '', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#c8d2dc',
-      })
-      .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(500);
-    this.updateScoreText();
+    this.follow(HUMAN_ID);
 
     this.debug = new DebugOverlay(this);
     this.bindLoadoutCheats();
+
+    this.scene.launch('UI', { source: this });
+    this.ui = this.scene.get('UI') as UIScene;
   }
 
-  /** Bots roam between the map's landmarks when they have no better lead. */
-  private spawnBots(): void {
+  /** 1 human + bots on T vs all-bot CT side, sized by TEAM_SIZE. */
+  private buildRoster(): void {
     const roamPoints: Vec2[] = [
       ...this.map.bombsites.map((s) => ({ x: s.x + s.width / 2, y: s.y + s.height / 2 })),
       ...this.map.spawnsT,
@@ -129,24 +142,38 @@ export class GameScene extends Phaser.Scene {
     ];
     const profile = BOT_PROFILES[BOT_DIFFICULTY];
 
-    this.bots = {};
-    this.botSpawns = {};
-    BOT_LOADOUTS.forEach(({ id, weapon, color }, i) => {
-      const at = this.map.spawnsCT[i % this.map.spawnsCT.length];
-      this.state.players[id] = createPlayer(id, at.x, at.y, weapon);
-      this.bots[id] = new BotController(id, [PLAYER_ID], profile, this.map, roamPoints, 0x1234 + i);
-      this.botSpawns[id] = at;
+    const add = (id: string, team: Team, name: string, color: number, isBot: boolean): void => {
+      const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
+      const idx = team === 'T' ? this.tIds.length : this.ctIds.length;
+      const at = spawns[idx % spawns.length];
+      this.state.players[id] = createPlayer(id, team, at.x, at.y);
       this.views[id] = new PlayerView(this, at.x, at.y, color);
       this.prev[id] = { x: at.x, y: at.y, angle: 0 };
-    });
+      this.names[id] = name;
+      (team === 'T' ? this.tIds : this.ctIds).push(id);
+      if (isBot) {
+        // Enemies are filled in below once both rosters exist.
+        this.bots[id] = new BotController(id, [], profile, this.map, roamPoints, 0xbeef + idx * 7 + (team === 'CT' ? 1000 : 0));
+      }
+    };
+
+    add(HUMAN_ID, 'T', 'You', 0x4da6ff, false);
+    for (let i = 1; i < TEAM_SIZE; i++) {
+      add(`t${i + 1}`, 'T', `T-Bot ${i + 1}`, T_BOT_COLORS[(i - 1) % T_BOT_COLORS.length], true);
+    }
+    for (let i = 0; i < TEAM_SIZE; i++) {
+      add(`ct${i + 1}`, 'CT', `CT-Bot ${i + 1}`, CT_BOT_COLORS[i % CT_BOT_COLORS.length], true);
+    }
+    for (const id of this.tIds) this.bots[id]?.setEnemies(this.ctIds);
+    for (const id of this.ctIds) this.bots[id]?.setEnemies(this.tIds);
   }
 
-  /** Debug loadout swaps (F1–F3) until the Phase 7 buy menu exists. */
+  /** Debug loadout swaps (F1–F3) bypassing the economy. */
   private bindLoadoutCheats(): void {
     const kb = this.input.keyboard!;
     const cheats = { F1: 'smg', F2: 'rifle', F3: 'sniper' } as const;
     for (const [key, weapon] of Object.entries(cheats)) {
-      kb.on(`keydown-${key}`, () => givePrimary(this.state.players[PLAYER_ID], weapon));
+      kb.on(`keydown-${key}`, () => givePrimary(this.state.players[HUMAN_ID], weapon));
     }
     kb.on('keydown-F5', () => (this.vision.fullCircle = !this.vision.fullCircle));
     kb.on('keydown-F6', () => (this.botsFrozen = !this.botsFrozen));
@@ -154,74 +181,207 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     this.accumulator += Math.min(delta, MAX_FRAME_DELTA_MS) / 1000;
-    const player = this.state.players[PLAYER_ID];
+    const player = this.state.players[HUMAN_ID];
 
     while (this.accumulator >= FIXED_DT) {
       for (const p of Object.values(this.state.players)) {
         this.prev[p.id] = { x: p.pos.x, y: p.pos.y, angle: p.angle };
       }
-      const cmd = this.inputSystem.sample(this.state.tick, player.pos);
-      applyInput(this.state, PLAYER_ID, cmd, this.map, FIXED_DT);
-      if (!this.botsFrozen) {
+      const evStart = this.state.events.length;
+      const cmds: Record<string, InputCommand> = {};
+
+      let cmd = this.inputSystem.sample(this.state.tick, player.pos);
+      if (movementFrozen(this.match)) cmd = { ...cmd, moveX: 0, moveY: 0, buttons: 0 };
+      cmds[HUMAN_ID] = cmd;
+      applyInput(this.state, HUMAN_ID, cmd, this.map, FIXED_DT);
+
+      const botsActive =
+        !this.botsFrozen && (this.match.phase === 'live' || this.match.phase === 'round_end');
+      if (botsActive) {
         for (const bot of Object.values(this.bots)) {
           const botCmd = bot.update(this.state, FIXED_DT);
+          cmds[bot.id] = botCmd;
           applyInput(this.state, bot.id, botCmd, this.map, FIXED_DT);
         }
       }
+
+      updateMatch(
+        this.match,
+        this.state,
+        cmds,
+        this.map,
+        this.state.events.slice(evStart),
+        FIXED_DT,
+      );
       this.state.tick++;
       this.accumulator -= FIXED_DT;
     }
 
-    this.drainEvents();
+    this.assignObjectives();
+    this.drainSimEvents();
+    this.drainMatchEvents();
+    this.updateBanner(delta);
+    this.updateBombAudioVisual(delta);
     this.effects.update(delta);
     this.updateDamageIndicators(delta);
-    const rendered = this.renderPlayers();
+
+    const subjectId = this.viewSubjectId();
+    this.follow(subjectId);
+    const rendered = this.renderPlayers(subjectId);
     this.audio.setListener(rendered);
     this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
     this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle);
+    this.cullEnemies(subjectId);
 
-    // Enemy culling: same rules as the fog-of-war (wall LOS + cone + range).
-    for (const { id } of BOT_LOADOUTS) {
-      const bot = this.state.players[id];
-      this.views[id].setVisible(
-        canSee(player, bot.pos, this.map.segments, this.vision.fullCircle),
-      );
-    }
-
-    this.updateAmmoText(player);
-
-    this.debug.setLine('map', MAP_KEY);
-    this.debug.setLine('tick', String(this.state.tick));
-    this.debug.setLine('pos', `${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}`);
-    this.debug.setLine('weapon', activeWeapon(player).id);
-    this.debug.setLine('spread', `${currentSpreadDeg(player).toFixed(2)}°`);
-    for (const { id } of BOT_LOADOUTS) {
-      const info = this.bots[id].debugInfo;
-      const hp = this.state.players[id].hp;
-      this.debug.setLine(id, `${info.state} hp:${hp}${this.botsFrozen ? ' (frozen F6)' : ''}`);
-    }
-    this.debug.setLine(
-      'vision',
-      `${this.vision.rayCount} rays, ${this.vision.fullCircle ? '360°' : 'cone'} (F5)`,
-    );
-    this.debug.update();
-    if (this.debug.isVisible) this.drawDebug(player);
+    this.updateDebug(player);
   }
 
-  private drainEvents(): void {
+  // --- HudSource (pulled by UIScene every frame) ------------------------
+
+  getHud(): HudData {
+    const me = this.state.players[HUMAN_ID];
+    const stats = this.match.stats[HUMAN_ID];
+    const bomb = this.match.bomb;
+    const slot = me.slots[me.activeSlot];
+    const def = WEAPONS[slot.weaponId];
+    const subjectId = this.viewSubjectId();
+
+    let action: HudData['action'] = null;
+    if (bomb.plant?.playerId === HUMAN_ID) {
+      action = { label: 'PLANTING', frac: bomb.plant.progress / BOMB_PLANT_TIME_SEC };
+    } else if (bomb.defuse?.playerId === HUMAN_ID) {
+      const needed = stats.hasDefuseKit ? BOMB_DEFUSE_KIT_TIME_SEC : BOMB_DEFUSE_TIME_SEC;
+      action = { label: 'DEFUSING', frac: bomb.defuse.progress / needed };
+    }
+
+    return {
+      hp: me.hp,
+      weaponLabel: def.id.toUpperCase(),
+      ammoLabel:
+        me.reloadRemaining > 0
+          ? 'RELOADING…'
+          : def.magSize > 0
+            ? `${slot.magAmmo}/${slot.reserveAmmo}`
+            : '—',
+      ammoWarn: def.magSize > 0 && slot.magAmmo === 0 && me.reloadRemaining === 0,
+      money: stats.money,
+      round: this.match.round,
+      scoreT: this.match.score.T,
+      scoreCT: this.match.score.CT,
+      aliveT: aliveCount(this.state, 'T'),
+      aliveCT: aliveCount(this.state, 'CT'),
+      phase: this.match.phase,
+      clockSec: this.match.phaseTimeLeft,
+      bombPlanted: bomb.plantedAt !== null,
+      bombTimeLeft: bomb.timeLeft,
+      carryingBomb: bomb.carrierId === HUMAN_ID,
+      action,
+      banner: this.banner?.text ?? this.phaseBanner(),
+      subBanner: this.banner?.sub ?? this.phaseSubBanner(),
+      spectating: subjectId !== HUMAN_ID ? this.names[subjectId] : null,
+      buyMenu: canBuy(this.match) && me.hp > 0 ? this.buildBuyMenu() : null,
+      scoreboard: this.buildScoreboard(),
+    };
+  }
+
+  buy(item: WeaponId | 'kit'): void {
+    tryBuy(this.match, this.state, HUMAN_ID, item);
+  }
+
+  private phaseBanner(): string | null {
+    switch (this.match.phase) {
+      case 'warmup':
+        return 'WARMUP';
+      case 'buy':
+        return 'BUY TIME';
+      default:
+        return null;
+    }
+  }
+
+  private phaseSubBanner(): string | null {
+    return this.match.phase === 'buy' ? 'press 1–4 to buy · movement unlocks when the round starts' : null;
+  }
+
+  private buildBuyMenu(): BuyMenuItem[] {
+    const me = this.state.players[HUMAN_ID];
+    const stats = this.match.stats[HUMAN_ID];
+    return BUY_ITEMS.map(({ item, label }) => {
+      const price = item === 'kit' ? DEFUSE_KIT_PRICE : WEAPONS[item].price;
+      const enabled =
+        stats.money >= price &&
+        (item === 'kit'
+          ? me.team === 'CT' && !stats.hasDefuseKit
+          : me.slots[2]?.weaponId !== item);
+      return { item, label, price, enabled };
+    });
+  }
+
+  private buildScoreboard(): ScoreboardRow[] {
+    return [...this.tIds, ...this.ctIds].map((id) => {
+      const p = this.state.players[id];
+      const s = this.match.stats[id];
+      return {
+        name: this.names[id],
+        team: p.team,
+        kills: s.kills,
+        deaths: s.deaths,
+        money: s.money,
+        alive: p.hp > 0,
+      };
+    });
+  }
+
+  // --- Match plumbing -----------------------------------------------------
+
+  /** Standing orders for bots, derived from the current bomb/round state. */
+  private assignObjectives(): void {
+    const bomb = this.match.bomb;
+    if (this.match.phase !== 'live') {
+      for (const bot of Object.values(this.bots)) bot.setObjective(null);
+      return;
+    }
+    const anchor = this.siteAnchors[this.match.targetSite] ?? this.siteAnchors[0];
+
+    let retrieverAssigned = false;
+    for (const id of this.tIds) {
+      const bot = this.bots[id];
+      if (!bot) continue;
+      if (bomb.carrierId === id && !bomb.plantedAt) {
+        bot.setObjective({ pos: anchor, radiusPx: 20, holdUse: true });
+      } else if (bomb.droppedAt && !retrieverAssigned) {
+        bot.setObjective({ pos: bomb.droppedAt, radiusPx: 6 });
+        retrieverAssigned = true;
+      } else if (bomb.plantedAt) {
+        bot.setObjective({ pos: bomb.plantedAt, radiusPx: 150 });
+      } else {
+        bot.setObjective({ pos: anchor, radiusPx: 160 });
+      }
+    }
+    this.ctIds.forEach((id, i) => {
+      const bot = this.bots[id];
+      if (bomb.plantedAt) {
+        bot.setObjective({ pos: bomb.plantedAt, radiusPx: BOMB_DEFUSE_RANGE_PX - 15, holdUse: true });
+      } else {
+        bot.setObjective({ pos: this.siteAnchors[i % this.siteAnchors.length], radiusPx: 120 });
+      }
+    });
+  }
+
+  private drainSimEvents(): void {
     for (const ev of this.state.events) {
       if (ev.type === 'shot') {
         for (const bot of Object.values(this.bots)) bot.hear(this.state, ev);
-        this.effects.handle(ev, PLAYER_ID);
+        this.effects.handle(ev, HUMAN_ID);
         this.audio.play(this.audio.shotKey(ev.weaponId), ev.from);
         if (ev.hitPlayerId) {
           this.views[ev.hitPlayerId]?.flashDamage();
-          if (ev.playerId === PLAYER_ID) this.audio.play('hit');
-          if (ev.hitPlayerId === PLAYER_ID) {
+          if (ev.playerId === HUMAN_ID) this.audio.play('hit');
+          if (ev.hitPlayerId === HUMAN_ID) {
             this.audio.play('hurt');
             this.effects.damageShake();
             const shooter = this.state.players[ev.playerId];
-            const me = this.state.players[PLAYER_ID];
+            const me = this.state.players[HUMAN_ID];
             this.damageIndicators.push({
               angle: Math.atan2(shooter.pos.y - me.pos.y, shooter.pos.x - me.pos.x),
               age: 0,
@@ -232,23 +392,162 @@ export class GameScene extends Phaser.Scene {
         this.audio.play('reload', this.state.players[ev.playerId].pos);
       } else if (ev.type === 'death') {
         const victim = this.state.players[ev.playerId];
-        this.effects.handle(ev, PLAYER_ID, victim.pos);
+        this.effects.handle(ev, HUMAN_ID, victim.pos);
         this.audio.play('death', victim.pos);
-        if (ev.playerId === PLAYER_ID) this.deaths++;
-        else if (ev.killerId === PLAYER_ID) this.kills++;
-        this.updateScoreText();
-        // Instant respawn until rounds arrive in Phase 7.
-        const at = this.botSpawns[ev.playerId] ?? this.map.spawnsT[0];
-        respawnPlayer(this.state, ev.playerId, at);
-        this.prev[ev.playerId] = { x: at.x, y: at.y, angle: 0 };
-        this.bots[ev.playerId]?.reset();
+        // No respawn during the round — the fallen return at round start.
+        this.views[ev.playerId].setVisible(false);
       }
     }
     this.state.events.length = 0;
   }
 
-  private updateScoreText(): void {
-    this.scoreText.setText(`K ${this.kills}  /  D ${this.deaths}`);
+  private drainMatchEvents(): void {
+    for (const ev of this.match.events) {
+      switch (ev.type) {
+        case 'round_start':
+          this.onRoundStart();
+          break;
+        case 'round_end': {
+          const reasonText = {
+            elimination: 'enemy team eliminated',
+            detonation: 'bomb detonated',
+            defusal: 'bomb defused',
+            time: 'time ran out',
+          }[ev.reason];
+          this.setBanner(`${ev.winner} WIN THE ROUND`, reasonText, 3800);
+          break;
+        }
+        case 'match_end':
+          this.setBanner(
+            `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`,
+            `final score  T ${this.match.score.T} : ${this.match.score.CT} CT`,
+            Number.POSITIVE_INFINITY,
+          );
+          break;
+        case 'planted':
+          this.lastPlantPos = { ...ev.pos };
+          this.beepAcc = 0;
+          this.audio.play('bomb_plant', ev.pos);
+          this.setBanner('BOMB PLANTED', `${BOMB_TIMER_SEC} seconds to detonation`, 2500);
+          break;
+        case 'defused':
+          this.audio.play('bomb_defused', this.lastPlantPos);
+          break;
+        case 'exploded':
+          this.audio.play('bomb_explode', ev.pos);
+          this.effects.damageShake();
+          break;
+        case 'kill': {
+          const killerTeam = this.state.players[ev.killerId]?.team;
+          const color =
+            ev.killerId === 'bomb' ? '#ff9500' : killerTeam === 'CT' ? '#6699ff' : '#e0a050';
+          this.ui.addKillFeedLine(
+            `${this.names[ev.killerId] ?? ev.killerId} ✕ ${this.names[ev.victimId] ?? ev.victimId}`,
+            color,
+          );
+          break;
+        }
+        case 'bomb_dropped':
+        case 'bomb_pickup':
+          break; // world/HUD rendering reads bomb state directly
+      }
+    }
+    this.match.events.length = 0;
+  }
+
+  /** New round: everyone is back (match already respawned them). */
+  private onRoundStart(): void {
+    for (const [id, view] of Object.entries(this.views)) {
+      view.setVisible(true);
+      const p = this.state.players[id];
+      this.prev[id] = { x: p.pos.x, y: p.pos.y, angle: p.angle };
+    }
+    for (const bot of Object.values(this.bots)) bot.reset();
+    this.follow(HUMAN_ID);
+    this.setBanner(`ROUND ${this.match.round}`, 'buy time', 2000);
+    this.autoBuyBots();
+  }
+
+  /** Greedy bot spending: best affordable primary, then a kit for CTs. */
+  private autoBuyBots(): void {
+    for (const id of Object.keys(this.bots)) {
+      if (!tryBuy(this.match, this.state, id, 'rifle')) {
+        tryBuy(this.match, this.state, id, 'smg');
+      }
+      if (this.state.players[id].team === 'CT') tryBuy(this.match, this.state, id, 'kit');
+    }
+  }
+
+  private setBanner(text: string, sub: string, ttl: number): void {
+    this.banner = { text, sub, ttl };
+  }
+
+  private updateBanner(delta: number): void {
+    if (!this.banner) return;
+    this.banner.ttl -= delta;
+    if (this.banner.ttl <= 0) this.banner = null;
+  }
+
+  /** Dropped/planted bomb markers + accelerating countdown beeps. */
+  private updateBombAudioVisual(delta: number): void {
+    const bomb = this.match.bomb;
+    const g = this.bombGfx;
+    g.clear();
+    if (bomb.droppedAt) {
+      g.fillStyle(0xff9500, 1);
+      g.fillRect(bomb.droppedAt.x - 5, bomb.droppedAt.y - 4, 10, 8);
+      g.lineStyle(1, 0x0d0f12, 1);
+      g.strokeRect(bomb.droppedAt.x - 5, bomb.droppedAt.y - 4, 10, 8);
+    }
+    if (bomb.plantedAt) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 90);
+      g.fillStyle(0xff9500, 1);
+      g.fillCircle(bomb.plantedAt.x, bomb.plantedAt.y, 6);
+      g.lineStyle(2, 0xff5544, 0.4 + 0.6 * pulse);
+      g.strokeCircle(bomb.plantedAt.x, bomb.plantedAt.y, 10 + 4 * pulse);
+
+      if (this.match.phase === 'live') {
+        this.beepAcc += delta / 1000;
+        const interval = 0.15 + 0.85 * (bomb.timeLeft / BOMB_TIMER_SEC);
+        if (this.beepAcc >= interval) {
+          this.beepAcc = 0;
+          this.audio.play('bomb_beep', bomb.plantedAt);
+        }
+      }
+    }
+
+    for (const [id, view] of Object.entries(this.views)) {
+      view.setBombCarrier(bomb.carrierId === id);
+    }
+  }
+
+  // --- Camera / rendering -------------------------------------------------
+
+  /** Who the camera, fog and audio belong to: you, or a living teammate. */
+  private viewSubjectId(): string {
+    if (this.state.players[HUMAN_ID].hp > 0) return HUMAN_ID;
+    for (const id of this.tIds) {
+      if (this.state.players[id].hp > 0) return id;
+    }
+    return HUMAN_ID;
+  }
+
+  private follow(id: string): void {
+    if (this.followedId === id) return;
+    this.followedId = id;
+    this.cameras.main.startFollow(this.views[id]);
+  }
+
+  /** Enemies (and dead bodies) hide behind the fog's rules. */
+  private cullEnemies(subjectId: string): void {
+    const subject = this.state.players[subjectId];
+    for (const id of this.ctIds) {
+      const enemy = this.state.players[id];
+      if (enemy.hp <= 0) continue; // death handler hid the view
+      this.views[id].setVisible(
+        canSee(subject, enemy.pos, this.map.segments, this.vision.fullCircle),
+      );
+    }
   }
 
   /** Red arc at screen center pointing toward recent damage sources. */
@@ -272,10 +571,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Interpolate every view; returns the local player's render pos/angle. */
-  private renderPlayers(): RenderSnapshot {
+  /** Interpolate every view; returns the subject's render pos/angle. */
+  private renderPlayers(subjectId: string): RenderSnapshot {
     const alpha = this.accumulator / FIXED_DT;
-    let local: RenderSnapshot = { x: 0, y: 0, angle: 0 };
+    let subject: RenderSnapshot = { x: 0, y: 0, angle: 0 };
     for (const p of Object.values(this.state.players)) {
       const prev = this.prev[p.id] ?? { x: p.pos.x, y: p.pos.y, angle: p.angle };
       const x = Phaser.Math.Linear(prev.x, p.pos.x, alpha);
@@ -285,22 +584,36 @@ export class GameScene extends Phaser.Scene {
       view.setPosition(x, y);
       view.setAim(angle);
       view.setHpFrac(p.hp / PLAYER_MAX_HP);
-      if (p.id === PLAYER_ID) local = { x, y, angle };
+      if (p.id === subjectId) subject = { x, y, angle };
     }
-    return local;
+    return subject;
   }
 
-  private updateAmmoText(player: (typeof this.state.players)[string]): void {
-    const slot = player.slots[player.activeSlot];
-    const def = WEAPONS[slot.weaponId];
-    if (player.reloadRemaining > 0) {
-      this.ammoText.setText(`${def.id.toUpperCase()}  RELOADING…`);
-      this.ammoText.setColor('#d9b24a');
-    } else {
-      const ammo = def.magSize > 0 ? `${slot.magAmmo}/${slot.reserveAmmo}` : '—';
-      this.ammoText.setText(`${def.id.toUpperCase()}  ${ammo}`);
-      this.ammoText.setColor(def.magSize > 0 && slot.magAmmo === 0 ? '#d9534f' : '#c8d2dc');
+  // --- Debug ----------------------------------------------------------------
+
+  private updateDebug(player: (typeof this.state.players)[string]): void {
+    this.debug.setLine('map', MAP_KEY);
+    this.debug.setLine('tick', String(this.state.tick));
+    this.debug.setLine('phase', `${this.match.phase} ${this.match.phaseTimeLeft.toFixed(1)}s`);
+    this.debug.setLine(
+      'bomb',
+      this.match.bomb.plantedAt
+        ? `planted ${this.match.bomb.timeLeft.toFixed(1)}s`
+        : (this.match.bomb.carrierId ?? 'none'),
+    );
+    this.debug.setLine('pos', `${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}`);
+    this.debug.setLine('weapon', activeWeapon(player).id);
+    this.debug.setLine('spread', `${currentSpreadDeg(player).toFixed(2)}°`);
+    for (const [id, bot] of Object.entries(this.bots)) {
+      const hp = this.state.players[id].hp;
+      this.debug.setLine(id, `${bot.debugInfo.state} hp:${hp}${this.botsFrozen ? ' (frozen F6)' : ''}`);
     }
+    this.debug.setLine(
+      'vision',
+      `${this.vision.rayCount} rays, ${this.vision.fullCircle ? '360°' : 'cone'} (F5)`,
+    );
+    this.debug.update();
+    if (this.debug.isVisible) this.drawDebug(player);
   }
 
   /**
@@ -368,10 +681,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Bots (Phase 6): remaining path waypoints + last-known-position marker.
-    for (const { id } of BOT_LOADOUTS) {
+    for (const [id, botCtrl] of Object.entries(this.bots)) {
       const bot = this.state.players[id];
       if (bot.hp <= 0) continue;
-      const info = this.bots[id].debugInfo;
+      const info = botCtrl.debugInfo;
       g.lineStyle(1, 0xff88ff, 0.9);
       let from: Vec2 = bot.pos;
       for (let i = info.pathIndex; i < info.path.length; i++) {
