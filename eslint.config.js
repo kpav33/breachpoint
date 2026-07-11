@@ -6,6 +6,17 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Node-side dev tools (map generator etc.)
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
+  {
     // Architecture rule: src/core/ is pure simulation code. It must stay
     // importable by a future Node server, so it may never touch Phaser,
     // the DOM, or any rendering/scene code.

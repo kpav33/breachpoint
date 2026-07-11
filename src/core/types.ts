@@ -51,7 +51,13 @@ export interface GameState {
   projectiles: ProjectileState[];
 }
 
-/** Tile collision grid. Phase 2's MapLoader will produce these from Tiled. */
+/** An axis-aligned wall edge, world px. Consumed by raycasts and vision. */
+export interface Segment {
+  a: Vec2;
+  b: Vec2;
+}
+
+/** Tile collision grid, extracted from the Tiled walls layer. */
 export interface MapGrid {
   tileSize: number;
   /** Grid dimensions in tiles. */

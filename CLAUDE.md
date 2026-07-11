@@ -27,6 +27,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 - `npm run dev` — Vite dev server
 - `npm run build` — production build
 - `npm run lint` — ESLint (includes the core/ import restriction)
+- `node tools/generate-map.mjs` — regenerate `public/assets/maps/de_yard.json` + `tiles.png` from the layout defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts)
 <!-- Update this section as commands are added (tests, typecheck, etc.) -->
 
 ## Workflow
