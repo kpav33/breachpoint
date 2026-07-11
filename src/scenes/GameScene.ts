@@ -10,8 +10,10 @@ import {
 } from '../core/simulation';
 import { isWall } from '../core/collision';
 import { activeWeapon, currentSpreadDeg, givePrimary } from '../core/weapons';
+import { canSee } from '../core/vision';
 import { InputSystem } from '../game/systems/InputSystem';
 import { EffectsSystem } from '../game/systems/EffectsSystem';
+import { VisionSystem } from '../game/systems/VisionSystem';
 import { PlayerView } from '../game/entities/PlayerView';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
@@ -32,6 +34,7 @@ export class GameScene extends Phaser.Scene {
   private map!: MapData;
   private inputSystem!: InputSystem;
   private effects!: EffectsSystem;
+  private vision!: VisionSystem;
   private views!: Record<string, PlayerView>;
   private debug!: DebugOverlay;
   private ammoText!: Phaser.GameObjects.Text;
@@ -60,6 +63,7 @@ export class GameScene extends Phaser.Scene {
 
     this.inputSystem = new InputSystem(this);
     this.effects = new EffectsSystem(this);
+    this.vision = new VisionSystem(this, this.map.segments);
     this.views = {
       [PLAYER_ID]: new PlayerView(this, spawn.x, spawn.y),
       [DUMMY_ID]: new PlayerView(this, this.dummySpawn.x, this.dummySpawn.y, 0xd9534f),
@@ -88,6 +92,7 @@ export class GameScene extends Phaser.Scene {
     for (const [key, weapon] of Object.entries(cheats)) {
       kb.on(`keydown-${key}`, () => givePrimary(this.state.players[PLAYER_ID], weapon));
     }
+    kb.on('keydown-F5', () => (this.vision.fullCircle = !this.vision.fullCircle));
   }
 
   update(_time: number, delta: number): void {
@@ -104,7 +109,15 @@ export class GameScene extends Phaser.Scene {
 
     this.drainEvents();
     this.effects.update(delta);
-    this.renderPlayers();
+    const rendered = this.renderPlayers();
+    this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle);
+
+    // Enemy culling: same rules as the fog-of-war (wall LOS + cone + range).
+    const dummy = this.state.players[DUMMY_ID];
+    this.views[DUMMY_ID].setVisible(
+      canSee(player, dummy.pos, this.map.segments, this.vision.fullCircle),
+    );
+
     this.updateAmmoText(player);
 
     this.debug.setLine('map', MAP_KEY);
@@ -112,7 +125,11 @@ export class GameScene extends Phaser.Scene {
     this.debug.setLine('pos', `${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}`);
     this.debug.setLine('weapon', activeWeapon(player).id);
     this.debug.setLine('spread', `${currentSpreadDeg(player).toFixed(2)}°`);
-    this.debug.setLine('dummy hp', String(this.state.players[DUMMY_ID].hp));
+    this.debug.setLine('dummy hp', String(dummy.hp));
+    this.debug.setLine(
+      'vision',
+      `${this.vision.rayCount} rays, ${this.vision.fullCircle ? '360°' : 'cone'} (F5)`,
+    );
     this.debug.update();
     if (this.debug.isVisible) this.drawDebug(player);
   }
@@ -133,22 +150,23 @@ export class GameScene extends Phaser.Scene {
     this.state.events.length = 0;
   }
 
-  private renderPlayers(): void {
+  /** Returns the player's interpolated render position/angle. */
+  private renderPlayers(): { x: number; y: number; angle: number } {
     const player = this.state.players[PLAYER_ID];
     const alpha = this.accumulator / FIXED_DT;
     const view = this.views[PLAYER_ID];
-    view.setPosition(
-      Phaser.Math.Linear(this.prev.x, player.pos.x, alpha),
-      Phaser.Math.Linear(this.prev.y, player.pos.y, alpha),
-    );
-    view.setAim(
-      this.prev.angle + Phaser.Math.Angle.Wrap(player.angle - this.prev.angle) * alpha,
-    );
+    const x = Phaser.Math.Linear(this.prev.x, player.pos.x, alpha);
+    const y = Phaser.Math.Linear(this.prev.y, player.pos.y, alpha);
+    const angle =
+      this.prev.angle + Phaser.Math.Angle.Wrap(player.angle - this.prev.angle) * alpha;
+    view.setPosition(x, y);
+    view.setAim(angle);
     view.setHpFrac(player.hp / PLAYER_MAX_HP);
 
     const dummy = this.state.players[DUMMY_ID];
     this.views[DUMMY_ID].setPosition(dummy.pos.x, dummy.pos.y);
     this.views[DUMMY_ID].setHpFrac(dummy.hp / PLAYER_MAX_HP);
+    return { x, y, angle };
   }
 
   private updateAmmoText(player: (typeof this.state.players)[string]): void {
@@ -206,5 +224,26 @@ export class GameScene extends Phaser.Scene {
 
     g.lineStyle(1, 0x00ff88, 1);
     g.strokeCircle(player.pos.x, player.pos.y, PLAYER_RADIUS);
+
+    // Vision (Phase 4): raw rays faint, polygon outlines bright.
+    const cone = this.vision.cone;
+    g.lineStyle(1, 0xffff66, 0.15);
+    for (const ray of cone.rays) {
+      const a = player.angle + ray.angle;
+      g.lineBetween(
+        player.pos.x,
+        player.pos.y,
+        player.pos.x + Math.cos(a) * ray.dist,
+        player.pos.y + Math.sin(a) * ray.dist,
+      );
+    }
+    if (cone.polygon.length > 2) {
+      g.lineStyle(1, 0x66ff99, 0.9);
+      g.strokePoints(cone.polygon, true);
+    }
+    if (this.vision.awareness.polygon.length > 2) {
+      g.lineStyle(1, 0x6699ff, 0.9);
+      g.strokePoints(this.vision.awareness.polygon, true);
+    }
   }
 }

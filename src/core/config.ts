@@ -19,6 +19,16 @@ export const WALK_SPEED = 110;
 /** Seconds a weapon is unusable after switching to it. */
 export const WEAPON_SWITCH_TIME = 0.4;
 
+// --- Vision (Phase 4) ---------------------------------------------------
+/** Full width of the view cone, degrees. */
+export const VISION_CONE_DEG = 110;
+/** 360° awareness radius around the player (2.5 tiles). */
+export const AWARENESS_RADIUS = 80;
+/** Max sight distance in px. */
+export const VISION_RANGE = 900;
+/** Playtesting/easy-mode toggle: ignore the cone, see all around. */
+export const FULL_CIRCLE_VISION = false;
+
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   knife: {
     id: 'knife',
