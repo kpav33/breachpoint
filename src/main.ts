@@ -1,0 +1,21 @@
+import Phaser from 'phaser';
+import { BootScene } from './scenes/BootScene';
+import { GameScene } from './scenes/GameScene';
+
+export const GAME_WIDTH = 1280;
+export const GAME_HEIGHT = 720;
+
+new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'app',
+  width: GAME_WIDTH,
+  height: GAME_HEIGHT,
+  backgroundColor: '#1a1d21',
+  // Flat geometric/vector art style — keep antialiasing on, no pixelArt.
+  antialias: true,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [BootScene, GameScene],
+});
