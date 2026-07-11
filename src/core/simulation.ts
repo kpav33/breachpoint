@@ -92,7 +92,7 @@ export function applyInput(
   tickTimers(p, dt);
   move(p, cmd, map, dt);
   p.angle = cmd.aimAngle;
-  if (cmd.buttons & Buttons.Reload) tryStartReload(p);
+  if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
   if (cmd.buttons & Buttons.Shoot) tryFire(state, p, map);
 }
 
@@ -151,12 +151,13 @@ function move(p: PlayerState, cmd: InputCommand, map: SimMap, dt: number): void 
   resolveCircleGrid(p.pos, PLAYER_RADIUS, map.grid);
 }
 
-function tryStartReload(p: PlayerState): void {
+function tryStartReload(state: GameState, p: PlayerState): void {
   const slot = p.slots[p.activeSlot];
   const def = WEAPONS[slot.weaponId];
   if (def.magSize === 0) return;
   if (p.reloadRemaining > 0 || slot.magAmmo >= def.magSize || slot.reserveAmmo <= 0) return;
   p.reloadRemaining = def.reloadTime;
+  state.events.push({ type: 'reload', playerId: p.id, weaponId: def.id });
 }
 
 function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {

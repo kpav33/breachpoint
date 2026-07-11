@@ -28,6 +28,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 - `npm run build` — production build
 - `npm run lint` — ESLint (includes the core/ import restriction)
 - `node tools/generate-map.mjs` — regenerate `public/assets/maps/de_yard.json` + `tiles.png` from the layout defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts)
+- `node tools/generate-audio.mjs` — regenerate the placeholder sound set in `public/assets/audio/` (synthesized WAVs; swap files for real assets without code changes)
 <!-- Update this section as commands are added (tests, typecheck, etc.) -->
 
 ## Workflow

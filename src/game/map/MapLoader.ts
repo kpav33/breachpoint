@@ -24,8 +24,9 @@ export function loadMap(scene: Phaser.Scene, key: string = MAP_KEY): LoadedMap {
   const tilemap = scene.make.tilemap({ key });
   const tileset = tilemap.addTilesetImage('tiles', TILESET_KEY);
   if (!tileset) throw new Error(`Tileset "tiles" not found in map "${key}"`);
-  tilemap.createLayer('floor', tileset);
-  tilemap.createLayer('walls', tileset);
+  // Explicit depths so decals (2) sit above the floor but under walls.
+  tilemap.createLayer('floor', tileset)?.setDepth(0);
+  tilemap.createLayer('walls', tileset)?.setDepth(3);
 
   const raw = scene.cache.tilemap.get(key).data as TiledMap;
   const data = parseTiledMap(raw);
@@ -38,7 +39,8 @@ export function loadMap(scene: Phaser.Scene, key: string = MAP_KEY): LoadedMap {
         color: '#c8a35a',
       })
       .setOrigin(0.5)
-      .setAlpha(0.15);
+      .setAlpha(0.15)
+      .setDepth(4);
   }
 
   return { data, tilemap };

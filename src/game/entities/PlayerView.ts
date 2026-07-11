@@ -30,6 +30,7 @@ export class PlayerView extends Phaser.GameObjects.Container {
     this.hpFill = scene.add.rectangle(0, barY, HP_BAR_WIDTH, 4, 0x66cc66);
 
     this.add([this.aimBody, hpBg, this.hpFill]);
+    this.setDepth(5);
     scene.add.existing(this);
   }
 

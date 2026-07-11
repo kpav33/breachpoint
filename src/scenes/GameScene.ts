@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { PLAYER_MAX_HP, PLAYER_RADIUS, TICK_RATE, WEAPONS } from '../core/config';
+import { Buttons } from '../core/types';
 import type { GameState, Vec2 } from '../core/types';
 import type { MapData } from '../core/map';
 import {
@@ -14,6 +15,7 @@ import { canSee } from '../core/vision';
 import { InputSystem } from '../game/systems/InputSystem';
 import { EffectsSystem } from '../game/systems/EffectsSystem';
 import { VisionSystem } from '../game/systems/VisionSystem';
+import { AudioSystem } from '../game/systems/AudioSystem';
 import { PlayerView } from '../game/entities/PlayerView';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
@@ -35,13 +37,18 @@ export class GameScene extends Phaser.Scene {
   private inputSystem!: InputSystem;
   private effects!: EffectsSystem;
   private vision!: VisionSystem;
+  private audio!: AudioSystem;
   private views!: Record<string, PlayerView>;
   private debug!: DebugOverlay;
   private ammoText!: Phaser.GameObjects.Text;
+  private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
+  private damageIndicators: { angle: number; age: number }[] = [];
 
   private accumulator = 0;
   private prev = { x: 0, y: 0, angle: 0 };
   private dummySpawn!: Vec2;
+  /** F6 cheat: dummy returns fire via real InputCommands (Phase 6 preview). */
+  private dummyHostile = false;
 
   constructor() {
     super('Game');
@@ -62,8 +69,10 @@ export class GameScene extends Phaser.Scene {
     this.state.players[DUMMY_ID] = createPlayer(DUMMY_ID, this.dummySpawn.x, this.dummySpawn.y);
 
     this.inputSystem = new InputSystem(this);
-    this.effects = new EffectsSystem(this);
+    this.effects = new EffectsSystem(this, grid.width * grid.tileSize, grid.height * grid.tileSize);
     this.vision = new VisionSystem(this, this.map.segments);
+    this.audio = new AudioSystem(this);
+    this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
     this.views = {
       [PLAYER_ID]: new PlayerView(this, spawn.x, spawn.y),
       [DUMMY_ID]: new PlayerView(this, this.dummySpawn.x, this.dummySpawn.y, 0xd9534f),
@@ -93,6 +102,7 @@ export class GameScene extends Phaser.Scene {
       kb.on(`keydown-${key}`, () => givePrimary(this.state.players[PLAYER_ID], weapon));
     }
     kb.on('keydown-F5', () => (this.vision.fullCircle = !this.vision.fullCircle));
+    kb.on('keydown-F6', () => (this.dummyHostile = !this.dummyHostile));
   }
 
   update(_time: number, delta: number): void {
@@ -103,13 +113,32 @@ export class GameScene extends Phaser.Scene {
       this.prev = { x: player.pos.x, y: player.pos.y, angle: player.angle };
       const cmd = this.inputSystem.sample(this.state.tick, player.pos);
       applyInput(this.state, PLAYER_ID, cmd, this.map, FIXED_DT);
+      if (this.dummyHostile) {
+        const d = this.state.players[DUMMY_ID];
+        applyInput(
+          this.state,
+          DUMMY_ID,
+          {
+            tick: this.state.tick,
+            moveX: 0,
+            moveY: 0,
+            aimAngle: Math.atan2(player.pos.y - d.pos.y, player.pos.x - d.pos.x),
+            buttons: Buttons.Shoot,
+          },
+          this.map,
+          FIXED_DT,
+        );
+      }
       this.state.tick++;
       this.accumulator -= FIXED_DT;
     }
 
     this.drainEvents();
     this.effects.update(delta);
+    this.updateDamageIndicators(delta);
     const rendered = this.renderPlayers();
+    this.audio.setListener(rendered);
+    this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
     this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle);
 
     // Enemy culling: same rules as the fog-of-war (wall LOS + cone + range).
@@ -137,17 +166,55 @@ export class GameScene extends Phaser.Scene {
   private drainEvents(): void {
     for (const ev of this.state.events) {
       if (ev.type === 'shot') {
-        this.effects.handle(ev);
-        if (ev.hitPlayerId) this.views[ev.hitPlayerId]?.flashDamage();
+        this.effects.handle(ev, PLAYER_ID);
+        this.audio.play(this.audio.shotKey(ev.weaponId), ev.from);
+        if (ev.hitPlayerId) {
+          this.views[ev.hitPlayerId]?.flashDamage();
+          if (ev.playerId === PLAYER_ID) this.audio.play('hit');
+          if (ev.hitPlayerId === PLAYER_ID) {
+            this.audio.play('hurt');
+            this.effects.damageShake();
+            const shooter = this.state.players[ev.playerId];
+            const me = this.state.players[PLAYER_ID];
+            this.damageIndicators.push({
+              angle: Math.atan2(shooter.pos.y - me.pos.y, shooter.pos.x - me.pos.x),
+              age: 0,
+            });
+          }
+        }
+      } else if (ev.type === 'reload') {
+        this.audio.play('reload', this.state.players[ev.playerId].pos);
       } else if (ev.type === 'death') {
         const victim = this.state.players[ev.playerId];
-        this.effects.handle(ev, victim.pos);
+        this.effects.handle(ev, PLAYER_ID, victim.pos);
+        this.audio.play('death', victim.pos);
         // Instant respawn until rounds arrive in Phase 7.
         const at = ev.playerId === DUMMY_ID ? this.dummySpawn : this.map.spawnsT[0];
         respawnPlayer(this.state, ev.playerId, at);
       }
     }
     this.state.events.length = 0;
+  }
+
+  /** Red arc at screen center pointing toward recent damage sources. */
+  private updateDamageIndicators(dt: number): void {
+    const g = this.damageIndicatorGfx;
+    g.clear();
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    for (let i = this.damageIndicators.length - 1; i >= 0; i--) {
+      const ind = this.damageIndicators[i];
+      ind.age += dt;
+      if (ind.age >= 700) {
+        this.damageIndicators.splice(i, 1);
+        continue;
+      }
+      const fade = 1 - ind.age / 700;
+      g.lineStyle(5, 0xd9302c, 0.8 * fade);
+      g.beginPath();
+      g.arc(cx, cy, 64, ind.angle - 0.5, ind.angle + 0.5);
+      g.strokePath();
+    }
   }
 
   /** Returns the player's interpolated render position/angle. */

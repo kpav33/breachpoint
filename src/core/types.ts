@@ -108,7 +108,8 @@ export type SimEvent =
       hit: 'wall' | 'player' | 'none';
       hitPlayerId?: string;
     }
-  | { type: 'death'; playerId: string; killerId: string };
+  | { type: 'death'; playerId: string; killerId: string }
+  | { type: 'reload'; playerId: string; weaponId: WeaponId };
 
 export interface GameState {
   tick: number;

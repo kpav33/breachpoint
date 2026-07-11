@@ -4,6 +4,7 @@
 **Strategy:** Bots-first, multiplayer-ready architecture from day one. Each phase ends with something playable.
 
 **Locked-in design decisions:**
+
 - **Vision:** ~110° view-cone in the aim direction + small 360° awareness circle (2–3 tiles). Implemented as full visibility polygon ∩ cone, behind a config flag — full-circle mode kept as an easy/testing option.
 - **Economy:** simplified four-number model (start money, flat kill reward, win reward, escalating loss bonus). Full CS-style economy deferred to Phase 9+ when human teammates make save/force decisions meaningful.
 - **Art direction:** flat geometric/vector style — circle players with weapon rect + direction notch, clean-lined walls, solid-color floors. No pixel art, no sprite animation frames. Visual appeal comes from the Phase 5 juice layer (tracers, shake, particles, decals). Rendering is decoupled from simulation, so real sprites can replace shapes later without touching game logic.
@@ -36,7 +37,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [ ] BootScene → GameScene flow with a placeholder rectangle "player"
 - [ ] ESLint rule or convention check: nothing in `core/` may import from `phaser` or `game/`
 - [ ] Git repo, `.gitignore`
-- [ ] Debug overlay scaffold (toggle with backtick): starts as an FPS/tick counter. **Extend it every phase** — collision grid + player circle (Ph1), wall segments (Ph2), raycasts + spread cone (Ph3), visibility polygon outline + raw rays (Ph4), bot state labels + A* paths + last-known-position markers (Ph6). The three hardest systems to debug (vision, raycasts, bot AI) are all invisible without this
+- [ ] Debug overlay scaffold (toggle with backtick): starts as an FPS/tick counter. **Extend it every phase** — collision grid + player circle (Ph1), wall segments (Ph2), raycasts + spread cone (Ph3), visibility polygon outline + raw rays (Ph4), bot state labels + A\* paths + last-known-position markers (Ph6). The three hardest systems to debug (vision, raycasts, bot AI) are all invisible without this
 
 **Done when:** `npm run dev` shows a scene with a movable-later rectangle at 60fps.
 
@@ -55,8 +56,9 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [ ] Player sprite rotates to `aimAngle`; camera follows player
 
 **Gotchas:**
-- Normalize the move vector *before* scaling by speed, or diagonals are 41% faster.
-- Aim angle must be computed in *world* space (account for camera scroll), not raw pointer coords.
+
+- Normalize the move vector _before_ scaling by speed, or diagonals are 41% faster.
+- Aim angle must be computed in _world_ space (account for camera scroll), not raw pointer coords.
 
 **Done when:** smooth WASD movement, mouse aiming, sliding along a hardcoded test wall grid.
 
@@ -89,7 +91,8 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [ ] Rendering side (`EffectsSystem`): tracer line (fade over ~60ms), muzzle flash, impact spark on walls, hit marker on player hits
 
 **Gotchas:**
-- Spread should be an *angle* offset, not a position offset, or accuracy behaves weirdly at range.
+
+- Spread should be an _angle_ offset, not a position offset, or accuracy behaves weirdly at range.
 - Ray-vs-player: closest-point-on-segment to circle center; compare distance to `PLAYER_RADIUS`.
 - Don't let the shooter's own circle block their ray (skip self).
 
@@ -109,6 +112,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [ ] Performance pass: only recompute when the player moves/rotates beyond a threshold; only consider wall segments within screen radius
 
 **Gotchas:**
+
 - Cast 3 rays per corner (angle − ε, angle, angle + ε) or the polygon flickers at edges.
 - This is the most fiddly math in the project. Budget a full session for debugging; render the raw rays while developing.
 
@@ -118,15 +122,16 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 ## Phase 5 — Game Feel & Audio
 
-**Goal:** Make shooting *feel* good before adding brains and rules.
+**Goal:** Make shooting _feel_ good before adding brains and rules.
 
 - [ ] Screen shake (small, on firing heavy weapons and taking damage)
 - [ ] Camera recoil nudge opposite to aim on fire
 - [ ] Blood decals / wall bullet-hole decals (RenderTexture stamps, cap the count)
 - [ ] Shell casing particles
-- [ ] Audio sourcing: Kenney.nl audio packs (CC0, shippable), Freesound.org (verify licenses), or jsfxr/bfxr for generated placeholder effects. Grab a full placeholder set in one sitting rather than hunting per-sound
+- [x] Audio sourcing: Kenney.nl audio packs (CC0, shippable), Freesound.org (verify licenses), or jsfxr/bfxr for generated placeholder effects. Grab a full placeholder set in one sitting rather than hunting per-sound
+  - **Current state: synthesized placeholders** from `tools/generate-audio.mjs`. Before shipping (Phase 8 polish at the latest), replace the WAVs in `public/assets/audio/` with real assets (Kenney.nl is the shippable CC0 option) — same filenames, no code changes needed. See `public/assets/audio/README.md` for the file list.
 - [ ] Audio: per-weapon gunshots, reload, footsteps (rate tied to speed), hit confirm, death. Distance-based volume + pan for other players' sounds
-- [ ] Footstep sounds of *unseen* enemies are a core CS mechanic — play them positionally even when the enemy isn't rendered
+- [ ] Footstep sounds of _unseen_ enemies are a core CS mechanic — play them positionally even when the enemy isn't rendered
 - [ ] Damage direction indicator on HUD
 
 **Done when:** a 60-second clip of you shooting a dummy looks and sounds satisfying.
@@ -137,9 +142,9 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Opponents worth playing against.
 
-- [ ] `pathfinding.ts`: A* over the collision grid (diagonals allowed with corner-cut check). Path smoothing: skip waypoints if a raycast between them is clear
+- [ ] `pathfinding.ts`: A\* over the collision grid (diagonals allowed with corner-cut check). Path smoothing: skip waypoints if a raycast between them is clear
 - [ ] `BotController.ts` state machine:
-  - **PATROL / MOVE_TO_OBJECTIVE** — pick target (bombsite, roam waypoint), follow A* path
+  - **PATROL / MOVE_TO_OBJECTIVE** — pick target (bombsite, roam waypoint), follow A\* path
   - **ENGAGE** — enemy visible (use the same raycast LOS check): aim with error, fire in bursts, strafe
   - **HUNT** — lost sight: move to last-known-position, then search nearby
   - **RETREAT** (optional) — low hp: fall back
@@ -174,7 +179,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 ## Phase 8 — Content & Polish (pre-multiplayer checkpoint)
 
 - [ ] Second map
-- [ ] 2–3 more weapons + grenades (grenades are *projectile entities* in the simulation: HE = radial damage, flash = whiteout if in view polygon + facing, smoke = temporary wall segments for the vision system — this is a very satisfying trick)
+- [ ] 2–3 more weapons + grenades (grenades are _projectile entities_ in the simulation: HE = radial damage, flash = whiteout if in view polygon + facing, smoke = temporary wall segments for the vision system — this is a very satisfying trick)
 - [ ] Armor/helmet purchase, damage model with armor
 - [ ] Minimap (scaled-down render of walls + teammate dots)
 - [ ] Settings: volume, sensitivity, keybinds
@@ -189,19 +194,22 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 **Goal:** Authoritative online PvP reusing `core/` unchanged.
 
 ### 9a. Server foundation
+
 - [ ] Monorepo restructure: `packages/core` (the existing `src/core/`), `packages/client`, `packages/server` — or simpler: server imports core via relative path/workspace
 - [ ] Colyseus room: fixed-tick loop (same `TICK_RATE`), runs `core/simulation` as the source of truth
 - [ ] Clients send `InputCommand`s (with client tick numbers); server buffers and applies them, broadcasts snapshots ~10–20×/s
 - [ ] Naive first pass: client renders raw snapshots (it will feel laggy — that's expected, it proves the pipe works)
 
 ### 9b. Netcode quality
-- [ ] **Client-side prediction:** client runs the same simulation locally for *its own* player immediately on input
+
+- [ ] **Client-side prediction:** client runs the same simulation locally for _its own_ player immediately on input
 - [ ] **Server reconciliation:** snapshots include last-processed input tick; client rewinds to server state and replays unacknowledged inputs. If you kept `core/` pure, this is ~50 lines
-- [ ] **Entity interpolation:** render *other* players ~100ms in the past, lerping between the two surrounding snapshots
+- [ ] **Entity interpolation:** render _other_ players ~100ms in the past, lerping between the two surrounding snapshots
 - [ ] **Lag compensation for hits:** server keeps ~1s of position history; when a shot arrives, rewind targets to `clientTime − interpolationDelay` before raycasting
 - [ ] Reference reading: Gabriel Gambetta "Fast-Paced Multiplayer" parts 1–4; Valve's Source Multiplayer Networking article
 
 ### 9c. Meta
+
 - [ ] Lobby / room list / join by code (Colyseus handles most of this)
 - [ ] Server-side validation: clamp move speeds, fire rates, buy legality (never trust the client — you already don't, since the server owns the sim)
 - [ ] Fill empty slots with bots (they already speak `InputCommand`)
@@ -220,7 +228,7 @@ Spectator mode with free camera · demo/replay recording (store input streams �
 ## Starter Weapon Table (tune later)
 
 | Weapon | Dmg | RPM | Mag | Reload | Spread° | Price | Speed× |
-|--------|-----|-----|-----|--------|---------|-------|--------|
+| ------ | --- | --- | --- | ------ | ------- | ----- | ------ |
 | Knife  | 35  | 120 | —   | —      | —       | free  | 1.10   |
 | Pistol | 26  | 300 | 12  | 1.8s   | 1.5     | free  | 1.00   |
 | SMG    | 20  | 750 | 30  | 2.2s   | 3.0     | $1200 | 1.00   |
@@ -233,7 +241,7 @@ Spectator mode with free camera · demo/replay recording (store input streams �
 - Gabriel Gambetta — Fast-Paced Multiplayer series (prediction/reconciliation/interpolation)
 - Valve Developer Wiki — Source Multiplayer Networking (lag compensation)
 - Phaser 3 examples site + Tiled docs (tilemap workflow)
-- Red Blob Games — A* pathfinding introduction
+- Red Blob Games — A\* pathfinding introduction
 
 ## Suggested Milestone Cadence
 
