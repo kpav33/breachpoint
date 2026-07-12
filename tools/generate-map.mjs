@@ -188,19 +188,34 @@ function encodePng(width, height, pixelAt) {
 }
 
 const hex = (h) => [(h >> 16) & 0xff, (h >> 8) & 0xff, h & 0xff];
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+// Nightfall world palette — keep in sync with src/game/theme.ts (WORLD).
 const COLORS = {
-  floor: hex(0x22262c),
-  site: hex(0x2e2a22),
-  wall: hex(0x4a5460),
-  wallEdge: hex(0x39424c),
+  floor: hex(0x1b2027),
+  floorLine: hex(0x20262e),
+  site: hex(0x2c2820),
+  siteLine: hex(0x544824),
+  wall: hex(0x3f4a56),
+  wallTop: hex(0x57646f),
+  wallDark: hex(0x2b333c),
 };
 const png = encodePng(TS * 3, TS, (x, y) => {
   const tile = Math.floor(x / TS); // 0 floor, 1 wall, 2 site
-  if (tile === 0) return COLORS.floor;
-  if (tile === 2) return COLORS.site;
-  const lx = x - TS;
-  const edge = lx < 2 || lx >= TS - 2 || y < 2 || y >= TS - 2;
-  return edge ? COLORS.wallEdge : COLORS.wall;
+  const lx = x % TS;
+  if (tile === 0) {
+    // Faint 1px grid line on the north/west edges of every tile.
+    return lx === 0 || y === 0 ? COLORS.floorLine : COLORS.floor;
+  }
+  if (tile === 2) {
+    // Objective ground: warm tint + faint 45° striping.
+    const stripe = (lx + y) % 12 < 2;
+    return stripe ? mix(COLORS.site, COLORS.siteLine, 0.3) : COLORS.site;
+  }
+  // Wall block: lighter top cap fakes height + shows which side is cover;
+  // dark right/bottom shadow grounds it.
+  if (y < 3) return COLORS.wallTop;
+  if (lx >= TS - 3 || y >= TS - 3) return COLORS.wallDark;
+  return COLORS.wall;
 });
 writeFileSync(join(OUT_DIR, 'tiles.png'), png);
 

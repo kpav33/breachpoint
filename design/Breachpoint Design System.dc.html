@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--void2, #0a0d11); }
+  a { color: var(--ct, #4d9be6); text-decoration: none; }
+  a:hover { color: var(--t1, #e8eef4); }
+  ::selection { background: rgba(239,125,58,0.3); }
+  @keyframes bp-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @keyframes bp-ring { 0% { transform: translate(-50%,-50%) scale(0.7); opacity: 0.9; } 100% { transform: translate(-50%,-50%) scale(1.9); opacity: 0; } }
+</style>
+</helmet>
+
+<div ref="{{ root }}" style="--void:#0d1014; --void2:#0a0d11; --floor:#1b2027; --floor2:#20262e; --floor-fog:#0f1319; --site:#2c2820; --site-line:#544824; --wall:#3f4a56; --wall-top:#57646f; --wall-dark:#2b333c; --t:#ef7d3a; --ct:#4d9be6; --me:#ffffff; --hp-good:#5fd08a; --hp-mid:#e8b13a; --hp-low:#e5484d; --bomb:#ffb020; --bomb-plant:#ff4d4d; --tracer:#ffe9a0; --blood:#7a1c1c; --hit:#ff5544; --brass:#d9b24a; --t1:#e8eef4; --t2:#99a6b3; --t3:#5d6a77; --money:#6bd08a; --warn:#f0b429; --danger:#e5484d; --panel:rgba(15,19,25,0.94); --panel-2:rgba(20,26,33,0.96); --line:#2a323b; --grid-a:0.5; font-family:'IBM Plex Sans',system-ui,sans-serif; color:var(--t1); background:var(--void2); min-height:100vh; padding-bottom:120px;">
+
+  <!-- ============ TOP NAV ============ -->
+  <div style="position:sticky; top:0; z-index:50; background:rgba(10,13,17,0.86); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); padding:14px 40px; display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <span style="width:11px; height:11px; border-radius:50%; background:var(--t); box-shadow:0 0 0 3px rgba(239,125,58,0.18);"></span>
+      <span style="font:700 16px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase;">Breachpoint</span>
+      <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.12em; padding:3px 6px; border:1px solid var(--line); border-radius:4px;">VISUAL SYSTEM v1</span>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="display:flex; gap:2px; font:600 11.5px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; flex-wrap:wrap;">
+      <a href="#palette" style="padding:7px 11px; border-radius:5px; color:var(--t2);">Palette</a>
+      <a href="#faction" style="padding:7px 11px; border-radius:5px; color:var(--t2);">Faction</a>
+      <a href="#type" style="padding:7px 11px; border-radius:5px; color:var(--t2);">Type</a>
+      <a href="#hud" style="padding:7px 11px; border-radius:5px; color:var(--t2);">HUD</a>
+      <a href="#components" style="padding:7px 11px; border-radius:5px; color:var(--t2);">Components</a>
+      <a href="#world" style="padding:7px 11px; border-radius:5px; color:var(--t2);">World</a>
+      <a href="#rules" style="padding:7px 11px; border-radius:5px; color:var(--t2);">Do / Don't</a>
+    </div>
+  </div>
+
+  <!-- ============ HERO / TITLE ============ -->
+  <div style="max-width:1240px; margin:0 auto; padding:64px 40px 28px;">
+    <div style="font:600 12px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.34em; text-transform:uppercase; margin-bottom:22px;">Top-down tactical shooter · Phase 8 design system</div>
+    <h1 style="font:700 62px/0.98 'IBM Plex Sans Condensed'; letter-spacing:-0.01em; margin:0 0 20px; max-width:15ch;">Designing with the darkness.</h1>
+    <p style="font:400 18px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:62ch; margin:0;">Breachpoint is a round-based bomb-defuse shooter seen from directly above, played through a 110° vision cone under heavy fog of war. Readability is the top value, juice second, decoration a distant third. This document is the specification for that look — tokens you can paste into config, one committed identity system, and pixel-accurate HUD mockups at the game's native 1280×720.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:26px;">
+      <span style="font:500 12px/1 'IBM Plex Mono'; color:var(--t2); padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">Flat geometric / vector</span>
+      <span style="font:500 12px/1 'IBM Plex Mono'; color:var(--t2); padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">Drawn in code · tokens not assets</span>
+      <span style="font:500 12px/1 'IBM Plex Mono'; color:var(--t2); padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">1280×720 · monospace HUD</span>
+      <span style="font:500 12px/1 'IBM Plex Mono'; color:var(--t2); padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel);">Fog @ 14% brightness</span>
+    </div>
+  </div>
+
+  <!-- ============ PALETTE TOGGLE BAR ============ -->
+  <div style="max-width:1240px; margin:36px auto 0; padding:0 40px;">
+    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:16px 20px; background:var(--panel); border:1px solid var(--line); border-radius:10px;">
+      <div style="font:600 12px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.1em; text-transform:uppercase; color:var(--t2);">Live palette</div>
+      <div style="display:flex; gap:0; border:1px solid var(--line); border-radius:7px; overflow:hidden;">
+        <button onClick="{{ setNightfall }}" style="{{ btnNightfall }}">Nightfall · cool fog</button>
+        <button onClick="{{ setEmber }}" style="{{ btnEmber }}">Ember · warm fog</button>
+      </div>
+      <div style="font:400 13px/1.5 'IBM Plex Sans'; color:var(--t3); flex:1; min-width:220px;">Every swatch, world scene and HUD mockup below re-themes live. Pick the direction, then read the tokens.</div>
+    </div>
+  </div>
+
+  <!-- ============ 1. PALETTE ============ -->
+  <div id="palette" style="max-width:1240px; margin:0 auto; padding:72px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">01</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">Palette &amp; tokens</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 36px;">Named roles, not one-off hexes. Two fog directions ship as a set — the world, players and HUD are identical between them; only the darkness and its temperature change. Every world color is tuned to survive the fog multiplier and to stay legible for common color-vision deficiencies.</p>
+
+    <!-- fog comparison -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:44px;">
+      <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--void);">
+        <div style="height:132px; background:#0d1014; position:relative; display:flex; align-items:center; justify-content:center;">
+          <span style="width:60px; height:60px; border-radius:50%; background:#ef7d3a; position:absolute; left:34%; filter:brightness(0.16);"></span>
+          <span style="width:60px; height:60px; border-radius:50%; background:#4d9be6; position:absolute; left:56%; filter:brightness(0.16);"></span>
+          <span style="font:600 11px/1 'IBM Plex Mono'; color:#3a444f; letter-spacing:0.18em;">UNDER FOG · 14%</span>
+        </div>
+        <div style="height:132px; background:#1b2027; position:relative; display:flex; align-items:center; justify-content:center;">
+          <span style="width:60px; height:60px; border-radius:50%; background:#ef7d3a; position:absolute; left:34%;"></span>
+          <span style="width:60px; height:60px; border-radius:50%; background:#4d9be6; position:absolute; left:56%;"></span>
+          <span style="font:600 11px/1 'IBM Plex Mono'; color:rgba(255,255,255,0.5); letter-spacing:0.18em; position:relative;">LIT CONE</span>
+        </div>
+        <div style="padding:14px 16px; border-top:1px solid var(--line);">
+          <div style="font:700 14px/1.2 'IBM Plex Sans Condensed'; letter-spacing:0.04em;">NIGHTFALL — void #0D1014</div>
+          <div style="font:400 12.5px/1.5 'IBM Plex Sans'; color:var(--t2); margin-top:3px;">Cool blue-black. The fog reads like night; orange stays warm against it, blue recedes calmly. Default.</div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#120f0c;">
+        <div style="height:132px; background:#120f0c; position:relative; display:flex; align-items:center; justify-content:center;">
+          <span style="width:60px; height:60px; border-radius:50%; background:#f0842f; position:absolute; left:34%; filter:brightness(0.18);"></span>
+          <span style="width:60px; height:60px; border-radius:50%; background:#4fa3ef; position:absolute; left:56%; filter:brightness(0.18);"></span>
+          <span style="font:600 11px/1 'IBM Plex Mono'; color:#4a4034; letter-spacing:0.18em;">UNDER FOG · 14%</span>
+        </div>
+        <div style="height:132px; background:#221d17; position:relative; display:flex; align-items:center; justify-content:center;">
+          <span style="width:60px; height:60px; border-radius:50%; background:#f0842f; position:absolute; left:34%;"></span>
+          <span style="width:60px; height:60px; border-radius:50%; background:#4fa3ef; position:absolute; left:56%;"></span>
+          <span style="font:600 11px/1 'IBM Plex Mono'; color:rgba(255,255,255,0.5); letter-spacing:0.18em; position:relative;">LIT CONE</span>
+        </div>
+        <div style="padding:14px 16px; border-top:1px solid rgba(90,74,52,0.5);">
+          <div style="font:700 14px/1.2 'IBM Plex Sans Condensed'; letter-spacing:0.04em; color:#f2ece3;">EMBER — void #120F0C</div>
+          <div style="font:400 12.5px/1.5 'IBM Plex Sans'; color:#a89c8d; margin-top:3px;">Warm near-black. Dust-and-concrete mood. Blue is pushed one step brighter so it survives the warm darkness; orange blends slightly more — the tradeoff.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- token groups -->
+    <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:14px 20px;">
+
+      <div style="grid-column:1 / -1; font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; text-transform:uppercase; color:var(--t3); margin:18px 0 2px;">World</div>
+      <sc-for list="{{ worldTokens }}" as="tk" hint-placeholder-count="8">
+        <div style="display:flex; align-items:center; gap:13px; padding:11px 13px; background:var(--panel); border:1px solid var(--line); border-radius:7px;">
+          <span style="width:36px; height:36px; border-radius:6px; flex:none; border:1px solid rgba(255,255,255,0.09); background:{{ tk.css }};"></span>
+          <div style="min-width:0; flex:1;">
+            <div style="font:600 13.5px/1.2 'IBM Plex Sans Condensed';">{{ tk.role }}</div>
+            <div style="font:500 12px/1.4 'IBM Plex Mono'; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.token }}</div>
+          </div>
+          <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">{{ tk.hex }}</span>
+        </div>
+      </sc-for>
+
+      <div style="grid-column:1 / -1; font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; text-transform:uppercase; color:var(--t3); margin:18px 0 2px;">Factions &amp; players</div>
+      <sc-for list="{{ factionTokens }}" as="tk" hint-placeholder-count="6">
+        <div style="display:flex; align-items:center; gap:13px; padding:11px 13px; background:var(--panel); border:1px solid var(--line); border-radius:7px;">
+          <span style="width:36px; height:36px; border-radius:50%; flex:none; border:1px solid rgba(255,255,255,0.09); background:{{ tk.css }};"></span>
+          <div style="min-width:0; flex:1;">
+            <div style="font:600 13.5px/1.2 'IBM Plex Sans Condensed';">{{ tk.role }}</div>
+            <div style="font:500 12px/1.4 'IBM Plex Mono'; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.token }}</div>
+          </div>
+          <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">{{ tk.hex }}</span>
+        </div>
+      </sc-for>
+
+      <div style="grid-column:1 / -1; font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; text-transform:uppercase; color:var(--t3); margin:18px 0 2px;">HUD &amp; text hierarchy</div>
+      <sc-for list="{{ hudTokens }}" as="tk" hint-placeholder-count="7">
+        <div style="display:flex; align-items:center; gap:13px; padding:11px 13px; background:var(--panel); border:1px solid var(--line); border-radius:7px;">
+          <span style="width:36px; height:36px; border-radius:6px; flex:none; border:1px solid rgba(255,255,255,0.09); background:{{ tk.css }};"></span>
+          <div style="min-width:0; flex:1;">
+            <div style="font:600 13.5px/1.2 'IBM Plex Sans Condensed';">{{ tk.role }}</div>
+            <div style="font:500 12px/1.4 'IBM Plex Mono'; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.token }}</div>
+          </div>
+          <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">{{ tk.hex }}</span>
+        </div>
+      </sc-for>
+
+      <div style="grid-column:1 / -1; font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; text-transform:uppercase; color:var(--t3); margin:18px 0 2px;">Effects &amp; objective</div>
+      <sc-for list="{{ fxTokens }}" as="tk" hint-placeholder-count="7">
+        <div style="display:flex; align-items:center; gap:13px; padding:11px 13px; background:var(--panel); border:1px solid var(--line); border-radius:7px;">
+          <span style="width:36px; height:36px; border-radius:6px; flex:none; border:1px solid rgba(255,255,255,0.09); background:{{ tk.css }};"></span>
+          <div style="min-width:0; flex:1;">
+            <div style="font:600 13.5px/1.2 'IBM Plex Sans Condensed';">{{ tk.role }}</div>
+            <div style="font:500 12px/1.4 'IBM Plex Mono'; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.token }}</div>
+          </div>
+          <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">{{ tk.hex }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- CVD note -->
+    <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:center; margin-top:32px; padding:18px 22px; background:var(--panel-2); border:1px solid var(--line); border-left:3px solid var(--ct); border-radius:8px;">
+      <div style="display:flex; gap:10px; flex:none;">
+        <span style="width:44px; height:44px; border-radius:50%; background:var(--t);"></span>
+        <span style="width:44px; height:44px; border-radius:50%; background:var(--ct);"></span>
+      </div>
+      <div style="flex:1; min-width:260px;">
+        <div style="font:700 14px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.04em; margin-bottom:4px;">COLOR-VISION SAFE BY CONSTRUCTION</div>
+        <div style="font:400 13.5px/1.6 'IBM Plex Sans'; color:var(--t2);">T-vs-CT is <b style="color:var(--t1);">orange vs blue</b> — separated on both hue and luminance, and one of the few pairs that stays distinct under deuteranopia, protanopia and tritanopia. Team identity never rests on red-vs-green. Danger red (<code style="font-family:'IBM Plex Mono';color:var(--danger);">#e5484d</code>) and money green (<code style="font-family:'IBM Plex Mono';color:var(--money);">#6bd08a</code>) only ever appear on HUD text with a supporting icon or position, never as the sole carrier of team meaning.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 2. FACTION & IDENTITY ============ -->
+  <div id="faction" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">02</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">Faction &amp; identity</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 32px;">Decision: <b style="color:var(--t1);">fixed faction colors.</b> Terrorists are always orange, Counter-Terrorists always blue — the same on every client, which is essential for the planned online multiplayer where "my team" isn't universal. Individuals within a team share the faction hue and are told apart by name label, not by tint. "You" reads through a white outline ring, never a unique color.</p>
+
+    <div style="display:grid; grid-template-columns:1.15fr 1fr; gap:20px; align-items:stretch;">
+      <!-- identity anatomy -->
+      <div style="border:1px solid var(--line); border-radius:12px; background:var(--void); overflow:hidden;">
+        <div style="padding:14px 18px; border-bottom:1px solid var(--line); font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2);">The 12px circle — anatomy</div>
+        <div style="position:relative; height:300px; background:radial-gradient(circle at 50% 46%, #232a32 0%, var(--floor) 42%, var(--floor-fog) 100%); display:flex; align-items:center; justify-content:center; gap:64px;">
+          <!-- me -->
+          <div style="position:relative; width:120px; display:flex; flex-direction:column; align-items:center; gap:16px;">
+            <div style="position:relative;">
+              <span style="position:absolute; left:50%; top:-16px; transform:translateX(-50%); width:38px; height:5px; border-radius:3px; background:var(--hp-good);"></span>
+              <span style="position:absolute; left:50%; top:-16px; transform:translateX(-50%); width:38px; height:5px; border-radius:3px; box-shadow:0 0 0 1px rgba(0,0,0,0.5);"></span>
+              <span style="display:block; width:52px; height:52px; border-radius:50%; background:var(--t); box-shadow:0 0 0 3px var(--me), 0 0 14px rgba(239,125,58,0.4);"></span>
+              <span style="position:absolute; left:50%; top:-4px; transform:translateX(-50%); width:0; height:0; border-left:7px solid transparent; border-right:7px solid transparent; border-bottom:12px solid var(--me);"></span>
+            </div>
+            <div style="font:600 11px/1.4 'IBM Plex Mono'; color:var(--t2); text-align:center;">YOU (T)<br><span style="color:var(--t3);">white ring + notch</span></div>
+          </div>
+          <!-- teammate -->
+          <div style="position:relative; width:120px; display:flex; flex-direction:column; align-items:center; gap:16px;">
+            <div style="position:relative;">
+              <span style="position:absolute; left:50%; top:-16px; transform:translateX(-50%); width:38px; height:5px; border-radius:3px; background:var(--hp-mid);"></span>
+              <span style="display:block; width:52px; height:52px; border-radius:50%; background:var(--t);"></span>
+              <span style="position:absolute; left:50%; top:-4px; transform:translateX(-50%) rotate(150deg); transform-origin:50% 30px; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:11px solid rgba(255,255,255,0.9);"></span>
+              <span style="position:absolute; left:50%; top:64px; transform:translateX(-50%); font:600 9.5px/1 'IBM Plex Mono'; color:var(--t2); white-space:nowrap; background:rgba(0,0,0,0.4); padding:2px 4px; border-radius:3px;">T-BOT 2</span>
+            </div>
+            <div style="font:600 11px/1.4 'IBM Plex Mono'; color:var(--t2); text-align:center; margin-top:8px;">TEAMMATE<br><span style="color:var(--t3);">same hue + name</span></div>
+          </div>
+          <!-- enemy -->
+          <div style="position:relative; width:120px; display:flex; flex-direction:column; align-items:center; gap:16px;">
+            <div style="position:relative;">
+              <span style="display:block; width:52px; height:52px; border-radius:50%; background:var(--ct);"></span>
+              <span style="position:absolute; left:50%; top:-4px; transform:translateX(-50%) rotate(210deg); transform-origin:50% 30px; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:11px solid rgba(255,255,255,0.9);"></span>
+              <span style="position:absolute; left:-6px; top:-6px; width:14px; height:14px; border-radius:3px; background:var(--bomb); box-shadow:0 0 8px rgba(255,176,32,0.6);"></span>
+            </div>
+            <div style="font:600 11px/1.4 'IBM Plex Mono'; color:var(--t2); text-align:center;">ENEMY (CT)<br><span style="color:var(--t3);">+ bomb-carrier tag</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- rules list -->
+      <div style="border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:22px 24px; display:flex; flex-direction:column; gap:18px;">
+        <div>
+          <div style="font:700 13px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--me); margin-bottom:4px;">▸ WHICH ONE IS ME</div>
+          <div style="font:400 13.5px/1.6 'IBM Plex Sans'; color:var(--t2);">A 3px white outline ring plus a white direction notch. The ring is legible over lit floor and at the fog edge, and adds zero new hue to parse mid-firefight.</div>
+        </div>
+        <div style="height:1px; background:var(--line);"></div>
+        <div>
+          <div style="font:700 13px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--t); margin-bottom:4px;">▸ FACING</div>
+          <div style="font:400 13.5px/1.6 'IBM Plex Sans'; color:var(--t2);">A notch cut into the circle's rim in body color for others, white for you — the single most-read piece of information in the game (who is looking where).</div>
+        </div>
+        <div style="height:1px; background:var(--line);"></div>
+        <div>
+          <div style="font:700 13px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--hp-good); margin-bottom:4px;">▸ HEALTH</div>
+          <div style="font:400 13.5px/1.6 'IBM Plex Sans'; color:var(--t2);">A 4px bar above the head, green→amber→red by value. Only drawn when HP &lt; 100, so full-health players stay clean.</div>
+        </div>
+        <div style="height:1px; background:var(--line);"></div>
+        <div>
+          <div style="font:700 13px/1.3 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--bomb); margin-bottom:4px;">▸ CARRYING THE BOMB</div>
+          <div style="font:400 13.5px/1.6 'IBM Plex Sans'; color:var(--t2);">A bright objective-orange square clipped to the circle's shoulder. Objective orange is yellower than T body orange so the tag never dissolves into a T carrier.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3. TYPOGRAPHY ============ -->
+  <div id="type" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">03</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">Typography</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 32px;">One superfamily, two roles. <b style="color:var(--t1);">IBM Plex Mono</b> carries every ticking number — its fixed advance means timers, money and ammo never reflow as digits change, and it's already tabular. <b style="color:var(--t1);">IBM Plex Sans Condensed</b> carries banners and labels, packing loud words into narrow HUD real estate. Both are on Google Fonts, both web-loadable, both keep the "clean, dry, tactical" tone.</p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:24px;">
+        <div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.16em;">DATA · IBM PLEX MONO</div>
+        <div style="font:600 60px/1 'IBM Plex Mono'; letter-spacing:0.02em; margin:16px 0 6px; font-variant-numeric:tabular-nums;">1:24</div>
+        <div style="display:flex; gap:22px; flex-wrap:wrap; font-variant-numeric:tabular-nums;">
+          <span style="font:600 26px/1 'IBM Plex Mono'; color:var(--money);">$3400</span>
+          <span style="font:600 26px/1 'IBM Plex Mono';">17<span style="color:var(--t2); font-weight:400;">/90</span></span>
+          <span style="font:600 26px/1 'IBM Plex Mono';">100<span style="color:var(--t2); font-size:16px;"> hp</span></span>
+        </div>
+        <div style="height:1px; background:var(--line); margin:20px 0;"></div>
+        <div style="font:400 13px/1.7 'IBM Plex Sans'; color:var(--t2);">Timers · money · ammo · HP/armor · kill-feed names · scoreboard cells. Weights 500/600/700. Always <code style="font-family:'IBM Plex Mono'; color:var(--t1);">tabular-nums</code>.</div>
+      </div>
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:24px;">
+        <div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.16em;">DISPLAY · IBM PLEX SANS CONDENSED</div>
+        <div style="font:700 52px/1 'IBM Plex Sans Condensed'; letter-spacing:0.02em; margin:16px 0 6px;">BOMB PLANTED</div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap;">
+          <span style="font:700 20px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; color:var(--ct);">CT Win</span>
+          <span style="font:600 20px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; color:var(--t2);">Buy Time</span>
+          <span style="font:600 20px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; color:var(--t2);">Round 5</span>
+        </div>
+        <div style="height:1px; background:var(--line); margin:20px 0;"></div>
+        <div style="font:400 13px/1.7 'IBM Plex Sans'; color:var(--t2);">Center banners · section labels · buy-menu names · button text. Uppercase with <code style="font-family:'IBM Plex Mono'; color:var(--t1);">0.08em</code> tracking for banners; weight 600–700.</div>
+      </div>
+    </div>
+
+    <!-- scale table -->
+    <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); margin-top:16px; overflow:hidden;">
+      <sc-for list="{{ typeScale }}" as="row" hint-placeholder-count="6">
+        <div style="display:grid; grid-template-columns:180px 1fr 130px 90px; align-items:center; gap:16px; padding:13px 20px; border-top:1px solid var(--line);">
+          <span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; color:var(--t2);">{{ row.use }}</span>
+          <span style="{{ row.style }}">{{ row.sample }}</span>
+          <span style="font:500 11.5px/1 'IBM Plex Mono'; color:var(--t3);">{{ row.font }}</span>
+          <span style="font:500 12px/1 'IBM Plex Mono'; color:var(--t2); text-align:right; font-variant-numeric:tabular-nums;">{{ row.size }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- ============ 4. HUD MOCKUPS ============ -->
+  <div id="hud" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">04</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">HUD layouts — 1280×720</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 36px;">Rendered at native logical resolution. The center of every screen is kept sacred — that's where aiming happens — so information is pinned to the corners and edges. Nothing pulses or animates unless it encodes urgency.</p>
+  </div>
+
+  <!-- HERO: in-round -->
+  <div style="max-width:1240px; margin:0 auto; padding:0 40px;">
+    <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:12px;">
+      <span style="font:700 15px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase;">In-round · core HUD</span>
+      <span style="font:400 13px/1.4 'IBM Plex Sans'; color:var(--t3);">the screen players stare at for hours</span>
+    </div>
+  </div>
+  <div style="max-width:1240px; margin:0 auto 44px; padding:0 40px;">
+    <div style="width:100%; max-width:1160px; margin:0 auto; aspect-ratio:16/9; border:1px solid var(--line); border-radius:12px; overflow:hidden; position:relative; box-shadow:0 30px 80px rgba(0,0,0,0.5);">
+      <div style="position:absolute; inset:0; container-type:inline-size;">
+        <div ref="{{ heroScene }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono';">
+
+          <!-- fogged base -->
+          <div style="position:absolute; inset:0; background:var(--void);"></div>
+          <div style="position:absolute; inset:0; background:var(--floor-fog); background-image:linear-gradient(var(--floor2) 1px,transparent 1px),linear-gradient(90deg,var(--floor2) 1px,transparent 1px); background-size:32px 32px; opacity:calc(var(--grid-a) * 0.5); mix-blend-mode:screen;"></div>
+          <!-- faint fogged wall hints -->
+          <div style="position:absolute; left:180px; top:120px; width:40px; height:300px; background:var(--wall-dark); opacity:0.5;"></div>
+          <div style="position:absolute; left:180px; top:120px; width:260px; height:40px; background:var(--wall-dark); opacity:0.5;"></div>
+          <div style="position:absolute; left:980px; top:430px; width:220px; height:40px; background:var(--wall-dark); opacity:0.5;"></div>
+
+          <!-- awareness circle -->
+          <div style="position:absolute; left:560px; top:470px; width:230px; height:230px; transform:translate(-50%,-50%); border-radius:50%; background:radial-gradient(circle, rgba(43,52,62,0.55) 0%, rgba(27,32,39,0.25) 55%, transparent 72%);"></div>
+
+          <!-- LIT CONE -->
+          <div style="position:absolute; inset:0; clip-path:polygon(560px 470px, 40px 150px, 360px -160px, 760px -160px, 1120px 150px);">
+            <div style="position:absolute; inset:0; background:var(--floor);"></div>
+            <div style="position:absolute; inset:0; background-image:linear-gradient(var(--floor2) 1px,transparent 1px),linear-gradient(90deg,var(--floor2) 1px,transparent 1px); background-size:32px 32px; opacity:var(--grid-a);"></div>
+            <!-- bombsite A within cone -->
+            <div style="position:absolute; left:620px; top:60px; width:300px; height:220px; background:var(--site);"></div>
+            <div style="position:absolute; left:620px; top:60px; width:300px; height:220px; background:repeating-linear-gradient(45deg, transparent 0 16px, rgba(255,176,32,0.05) 16px 20px);"></div>
+            <div style="position:absolute; left:648px; top:74px; font:700 150px/1 'IBM Plex Sans Condensed'; color:rgba(255,176,32,0.12);">A</div>
+            <!-- lit wall segment -->
+            <div style="position:absolute; left:740px; top:210px; width:40px; height:200px; background:var(--wall); border-top:3px solid var(--wall-top); box-shadow:2px 0 0 var(--wall-dark);"></div>
+            <!-- enemy CT in cone -->
+            <div style="position:absolute; left:880px; top:250px;">
+              <span style="position:absolute; left:-4px; top:-16px; width:32px; height:4px; border-radius:2px; background:var(--hp-mid); box-shadow:0 0 0 1px rgba(0,0,0,0.5);"></span>
+              <span style="display:block; width:26px; height:26px; border-radius:50%; background:var(--ct); box-shadow:0 0 10px rgba(77,155,230,0.5);"></span>
+              <span style="position:absolute; left:2px; top:16px; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-top:10px solid rgba(255,255,255,0.9);"></span>
+              <span style="position:absolute; left:30px; top:4px; font:600 11px/1 'IBM Plex Mono'; color:#cfe0f2; white-space:nowrap; text-shadow:0 1px 2px #000;">CT-BOT 3</span>
+            </div>
+            <!-- falloff -->
+            <div style="position:absolute; inset:0; background:radial-gradient(circle at 560px 470px, transparent 34%, rgba(13,16,20,0.55) 74%, var(--void) 100%);"></div>
+          </div>
+
+          <!-- tracer + muzzle (on top) -->
+          <div style="position:absolute; left:573px; top:463px; width:340px; height:3px; background:linear-gradient(90deg, var(--tracer), rgba(255,233,160,0.1)); transform-origin:left center; transform:rotate(-33deg); box-shadow:0 0 6px rgba(255,233,160,0.6);"></div>
+          <div style="position:absolute; left:585px; top:452px; width:16px; height:16px; border-radius:50%; background:radial-gradient(circle, #fff 0%, var(--tracer) 40%, transparent 70%);"></div>
+          <!-- decals near me -->
+          <div style="position:absolute; left:640px; top:520px; width:24px; height:18px; border-radius:50%; background:var(--blood); opacity:0.7; filter:blur(0.5px);"></div>
+          <div style="position:absolute; left:700px; top:440px; width:5px; height:5px; border-radius:50%; background:var(--void2);"></div>
+          <div style="position:absolute; left:612px; top:500px; width:6px; height:3px; border-radius:1px; background:var(--brass); transform:rotate(28deg);"></div>
+
+          <!-- ME -->
+          <div style="position:absolute; left:560px; top:470px; transform:translate(-50%,-50%);">
+            <span style="position:absolute; left:50%; top:-24px; transform:translateX(-50%); width:36px; height:5px; border-radius:3px; background:linear-gradient(90deg,var(--hp-good) 100%,transparent 0); box-shadow:0 0 0 1px rgba(0,0,0,0.6);"></span>
+            <span style="display:block; width:26px; height:26px; border-radius:50%; background:var(--t); box-shadow:0 0 0 3px var(--me), 0 0 16px rgba(239,125,58,0.5);"></span>
+            <span style="position:absolute; left:50%; top:-15px; transform:translateX(-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:11px solid var(--me);"></span>
+          </div>
+
+          <!-- crosshair -->
+          <div style="position:absolute; left:640px; top:360px; transform:translate(-50%,-50%); width:22px; height:22px;">
+            <span style="position:absolute; left:50%; top:0; transform:translateX(-50%); width:2px; height:7px; background:rgba(255,255,255,0.85);"></span>
+            <span style="position:absolute; left:50%; bottom:0; transform:translateX(-50%); width:2px; height:7px; background:rgba(255,255,255,0.85);"></span>
+            <span style="position:absolute; top:50%; left:0; transform:translateY(-50%); height:2px; width:7px; background:rgba(255,255,255,0.85);"></span>
+            <span style="position:absolute; top:50%; right:0; transform:translateY(-50%); height:2px; width:7px; background:rgba(255,255,255,0.85);"></span>
+          </div>
+
+          <!-- damage direction arc -->
+          <div style="position:absolute; left:640px; top:360px; width:180px; height:180px; transform:translate(-50%,-50%) rotate(28deg); border-radius:50%; border:3px solid transparent; border-top-color:rgba(229,72,77,0.55); clip-path:polygon(50% 50%, 20% 0, 80% 0);"></div>
+
+          <!-- ===== HUD OVERLAY ===== -->
+          <!-- minimap top-left -->
+          <div style="position:absolute; left:20px; top:20px; width:190px; height:150px; background:rgba(10,13,17,0.82); border:1px solid var(--line); border-radius:8px; overflow:hidden;">
+            <div style="position:absolute; inset:8px; border-radius:4px; background:var(--floor-fog);">
+              <div style="position:absolute; left:14px; top:12px; width:70px; height:10px; background:var(--wall); opacity:0.7;"></div>
+              <div style="position:absolute; left:14px; top:12px; width:10px; height:60px; background:var(--wall); opacity:0.7;"></div>
+              <div style="position:absolute; right:14px; bottom:16px; width:64px; height:10px; background:var(--wall); opacity:0.7;"></div>
+              <span style="position:absolute; left:120px; top:14px; font:700 13px/1 'IBM Plex Sans Condensed'; color:rgba(255,176,32,0.35);">A</span>
+              <span style="position:absolute; left:26px; bottom:20px; font:700 13px/1 'IBM Plex Sans Condensed'; color:rgba(255,176,32,0.35);">B</span>
+              <!-- dots -->
+              <span style="position:absolute; left:60px; top:70px; width:7px; height:7px; border-radius:50%; background:var(--t); box-shadow:0 0 0 2px var(--me);"></span>
+              <span style="position:absolute; left:44px; top:88px; width:6px; height:6px; border-radius:50%; background:var(--t);"></span>
+              <span style="position:absolute; left:90px; top:54px; width:6px; height:6px; border-radius:50%; background:var(--t);"></span>
+            </div>
+          </div>
+
+          <!-- top center clock -->
+          <div style="position:absolute; left:50%; top:16px; transform:translateX(-50%); text-align:center;">
+            <div style="font:600 34px/1 'IBM Plex Mono'; letter-spacing:0.04em; color:var(--t1); font-variant-numeric:tabular-nums; text-shadow:0 2px 6px rgba(0,0,0,0.6);">1:24</div>
+            <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:6px;">
+              <span style="font:600 18px/1 'IBM Plex Mono'; color:var(--t); font-variant-numeric:tabular-nums;">T&nbsp;2</span>
+              <span style="font:500 12px/1 'IBM Plex Sans Condensed'; color:var(--t3); letter-spacing:0.14em;">ROUND 5</span>
+              <span style="font:600 18px/1 'IBM Plex Mono'; color:var(--ct); font-variant-numeric:tabular-nums;">3&nbsp;CT</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:center; gap:16px; margin-top:5px;">
+              <div style="display:flex; gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--t);"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--t);"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--t3);opacity:0.4;"></span></div>
+              <div style="display:flex; gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--ct);"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--ct);"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--ct);"></span></div>
+            </div>
+          </div>
+
+          <!-- kill feed top right -->
+          <div style="position:absolute; right:20px; top:20px; display:flex; flex-direction:column; gap:5px; align-items:flex-end;">
+            <div style="display:flex; align-items:center; gap:8px; background:rgba(10,13,17,0.72); padding:5px 9px; border-radius:5px; font:600 13px/1 'IBM Plex Mono';"><span style="color:var(--t);">T-Bot 2</span><span style="color:var(--t2);">✕</span><span style="color:var(--ct);">CT-Bot 4</span></div>
+            <div style="display:flex; align-items:center; gap:8px; background:rgba(10,13,17,0.55); padding:5px 9px; border-radius:5px; font:600 13px/1 'IBM Plex Mono'; opacity:0.6;"><span style="color:var(--ct);">CT-Bot 1</span><span style="color:var(--t2);">✕</span><span style="color:var(--t);">T-Bot 3</span></div>
+          </div>
+
+          <!-- bottom left HP / armor / money -->
+          <div style="position:absolute; left:24px; bottom:22px; display:flex; align-items:flex-end; gap:22px;">
+            <div>
+              <div style="display:flex; align-items:baseline; gap:6px;"><span style="font:600 40px/1 'IBM Plex Mono'; color:var(--t1); font-variant-numeric:tabular-nums;">100</span><span style="font:500 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2);">HP</span></div>
+            </div>
+            <div>
+              <div style="display:flex; align-items:baseline; gap:6px;"><span style="font:600 28px/1 'IBM Plex Mono'; color:var(--ct); font-variant-numeric:tabular-nums;">50</span><span style="font:500 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2);">ARMOR</span></div>
+            </div>
+            <div>
+              <div style="font:600 30px/1 'IBM Plex Mono'; color:var(--money); font-variant-numeric:tabular-nums; text-shadow:0 2px 6px rgba(0,0,0,0.5);">$3400</div>
+            </div>
+          </div>
+
+          <!-- bottom right weapon / ammo / nades -->
+          <div style="position:absolute; right:24px; bottom:22px; text-align:right;">
+            <div style="display:flex; align-items:baseline; justify-content:flex-end; gap:10px;">
+              <span style="font:500 15px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; color:var(--t2);">RIFLE</span>
+              <span style="font:600 40px/1 'IBM Plex Mono'; color:var(--t1); font-variant-numeric:tabular-nums;">17<span style="color:var(--t2); font-size:24px;">/90</span></span>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
+              <span style="width:22px; height:22px; border-radius:5px; border:1px solid var(--line); background:rgba(10,13,17,0.6); display:flex; align-items:center; justify-content:center; font:600 11px/1 'IBM Plex Mono'; color:var(--warn);">◈</span>
+              <span style="width:22px; height:22px; border-radius:5px; border:1px solid var(--line); background:rgba(10,13,17,0.6); display:flex; align-items:center; justify-content:center; font:600 11px/1 'IBM Plex Mono'; color:var(--ct);">◈</span>
+              <span style="width:22px; height:22px; border-radius:5px; border:1px dashed var(--line); background:rgba(10,13,17,0.3);"></span>
+            </div>
+          </div>
+
+          <!-- bottom center objective hint -->
+          <div style="position:absolute; left:50%; bottom:26px; transform:translateX(-50%); font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; text-transform:uppercase; color:var(--bomb); background:rgba(10,13,17,0.6); padding:7px 14px; border-radius:6px; border:1px solid rgba(255,176,32,0.25);">Carrying the bomb — hold E in a site to plant</div>
+        </div>
+      </div>
+    </div>
+    <div style="max-width:1160px; margin:12px auto 0; font:400 13px/1.6 'IBM Plex Sans'; color:var(--t3);">Vision cone lights the stage like a spotlight; everything unseen falls to the fog floor. Corners carry state (minimap, clock, kill feed, resources), the center stays clear for the crosshair, and the only urgent element — the bomb hint — sits low and out of the aiming path.</div>
+  </div>
+
+  <!-- SECONDARY STATES GRID -->
+  <div style="max-width:1240px; margin:0 auto; padding:0 40px; display:grid; grid-template-columns:1fr 1fr; gap:26px 22px;">
+
+    <!-- BUY PHASE -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Buy phase</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sBuy }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--floor-fog); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:var(--void); opacity:0.55;"></div>
+          <!-- banner -->
+          <div style="position:absolute; left:50%; top:26px; transform:translateX(-50%); text-align:center;">
+            <div style="font:700 30px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; color:var(--t1);">BUY TIME</div>
+            <div style="font:600 22px/1 'IBM Plex Mono'; color:var(--warn); margin-top:6px; font-variant-numeric:tabular-nums;">0:12</div>
+          </div>
+          <!-- buy panel -->
+          <div style="position:absolute; left:44px; top:150px; width:560px; background:rgba(10,13,17,0.92); border:1px solid var(--line); border-radius:12px; padding:20px;">
+            <div style="display:flex; gap:8px; margin-bottom:16px;">
+              <span style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; padding:7px 12px; border-radius:6px; background:var(--t); color:#1a1207;">RIFLES</span>
+              <span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; padding:7px 12px; border-radius:6px; color:var(--t2); border:1px solid var(--line);">SMG</span>
+              <span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; padding:7px 12px; border-radius:6px; color:var(--t2); border:1px solid var(--line);">PISTOLS</span>
+              <span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; padding:7px 12px; border-radius:6px; color:var(--t2); border:1px solid var(--line);">GEAR</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:rgba(43,52,62,0.35);"><span style="width:26px;height:26px;border-radius:6px;background:var(--t);display:flex;align-items:center;justify-content:center;font:700 13px/1 'IBM Plex Mono';color:#1a1207;">1</span><div style="flex:1;"><div style="font:600 15px/1.2 'IBM Plex Sans Condensed';">RIFLE</div><div style="font:500 12px/1 'IBM Plex Mono';color:var(--money);margin-top:3px;">$2700</div></div></div>
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:8px;"><span style="width:26px;height:26px;border-radius:6px;background:var(--floor2);display:flex;align-items:center;justify-content:center;font:700 13px/1 'IBM Plex Mono';color:var(--t2);">2</span><div style="flex:1;"><div style="font:600 15px/1.2 'IBM Plex Sans Condensed';">AUTO</div><div style="font:500 12px/1 'IBM Plex Mono';color:var(--money);margin-top:3px;">$3100</div></div></div>
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:8px;"><span style="width:26px;height:26px;border-radius:6px;background:var(--floor2);display:flex;align-items:center;justify-content:center;font:700 13px/1 'IBM Plex Mono';color:var(--t2);">3</span><div style="flex:1;"><div style="font:600 15px/1.2 'IBM Plex Sans Condensed';">SCOUT</div><div style="font:500 12px/1 'IBM Plex Mono';color:var(--money);margin-top:3px;">$1700</div></div></div>
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; opacity:0.5;"><span style="width:26px;height:26px;border-radius:6px;background:var(--floor2);display:flex;align-items:center;justify-content:center;font:700 13px/1 'IBM Plex Mono';color:var(--t3);">4</span><div style="flex:1;"><div style="font:600 15px/1.2 'IBM Plex Sans Condensed';">HEAVY</div><div style="font:500 12px/1 'IBM Plex Mono';color:var(--danger);margin-top:3px;">$4750</div></div></div>
+            </div>
+            <div style="margin-top:16px; font:500 11px/1.4 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.06em;">PRESS 1–9 TO BUY · B TO REBUY LAST</div>
+          </div>
+          <!-- money bottom left -->
+          <div style="position:absolute; left:24px; bottom:22px; font:600 30px/1 'IBM Plex Mono'; color:var(--money); font-variant-numeric:tabular-nums;">$3400</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOMB PLANTED -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Bomb planted</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sPlant }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:var(--floor-fog); opacity:0.6;"></div>
+          <div style="position:absolute; inset:0; background:radial-gradient(circle at 50% 50%, rgba(255,77,77,0.10), transparent 60%);"></div>
+          <!-- red countdown -->
+          <div style="position:absolute; left:50%; top:16px; transform:translateX(-50%); text-align:center;">
+            <div style="font:700 34px/1 'IBM Plex Mono'; color:var(--bomb-plant); font-variant-numeric:tabular-nums; text-shadow:0 0 16px rgba(255,77,77,0.5); animation:bp-pulse 1s steps(2) infinite;">0:31</div>
+            <div style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; color:var(--danger); margin-top:5px;">DETONATION</div>
+          </div>
+          <!-- center banner -->
+          <div style="position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); text-align:center;">
+            <div style="font:700 46px/1 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--t1);">BOMB PLANTED</div>
+          </div>
+          <!-- planted bomb icon -->
+          <div style="position:absolute; left:52%; top:60%;">
+            <span style="position:absolute; left:50%; top:50%; width:44px; height:44px; border-radius:50%; border:2px solid var(--bomb-plant); animation:bp-ring 1.4s ease-out infinite;"></span>
+            <span style="display:block; width:18px; height:18px; border-radius:4px; background:var(--bomb); box-shadow:0 0 14px rgba(255,176,32,0.7);"></span>
+          </div>
+          <!-- defuse progress bar -->
+          <div style="position:absolute; left:50%; bottom:120px; transform:translateX(-50%); width:420px;">
+            <div style="display:flex; justify-content:space-between; font:600 11px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--ct); margin-bottom:6px;"><span>DEFUSING</span><span style="font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums;">62%</span></div>
+            <div style="height:8px; border-radius:4px; background:rgba(10,13,17,0.8); border:1px solid var(--line); overflow:hidden;"><div style="width:62%; height:100%; background:var(--ct);"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEAD / SPECTATING -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Dead · spectating</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sDead }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono'; filter:grayscale(0.55) brightness(0.8);">
+          <div style="position:absolute; inset:0; background:var(--floor); opacity:0.5;"></div>
+          <div style="position:absolute; inset:0; background:linear-gradient(rgba(10,13,17,0.35),rgba(10,13,17,0.6));"></div>
+          <!-- spectate bar -->
+          <div style="position:absolute; left:50%; top:20px; transform:translateX(-50%); display:flex; align-items:center; gap:12px; background:rgba(10,13,17,0.82); border:1px solid var(--line); border-radius:8px; padding:10px 18px;">
+            <span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; color:var(--t3);">SPECTATING</span>
+            <span style="font:600 16px/1 'IBM Plex Mono'; color:var(--t);">T-Bot 2</span>
+            <span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">◄ ►</span>
+          </div>
+          <!-- center message -->
+          <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); text-align:center;">
+            <div style="font:700 30px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2);">YOU ARE DEAD</div>
+            <div style="font:400 14px/1.5 'IBM Plex Sans'; color:var(--t3); margin-top:8px;">No respawn this round — spectate your team.</div>
+          </div>
+          <!-- dimmed spectated-player HUD echo -->
+          <div style="position:absolute; left:24px; bottom:22px; opacity:0.5;"><span style="font:600 30px/1 'IBM Plex Mono'; color:var(--t1); font-variant-numeric:tabular-nums;">64</span><span style="font:500 11px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2); margin-left:5px;">HP</span></div>
+          <div style="position:absolute; right:24px; bottom:22px; opacity:0.5; font:600 26px/1 'IBM Plex Mono'; color:var(--t1); font-variant-numeric:tabular-nums;">24<span style="color:var(--t2);font-size:16px;">/60</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCOREBOARD -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Scoreboard · hold Tab</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sBoard }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:rgba(10,13,17,0.9);"></div>
+          <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:920px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px;">
+              <span style="font:700 22px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t);">TERRORISTS</span>
+              <span style="font:600 30px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums;"><span style="color:var(--t);">2</span> <span style="color:var(--t3);">:</span> <span style="color:var(--ct);">3</span></span>
+              <span style="font:700 22px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--ct); text-align:right;">COUNTER-TERRORISTS</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+              <!-- T table -->
+              <div style="border:1px solid var(--line); border-radius:8px; overflow:hidden;">
+                <div style="display:grid; grid-template-columns:1fr 34px 34px 60px; padding:8px 12px; font:600 10px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t3); background:rgba(239,125,58,0.08);"><span>PLAYER</span><span style="text-align:center;">K</span><span style="text-align:center;">D</span><span style="text-align:right;">MONEY</span></div>
+                <sc-for list="{{ teamT }}" as="p" hint-placeholder-count="3">
+                  <div style="display:grid; grid-template-columns:1fr 34px 34px 60px; padding:9px 12px; border-top:1px solid var(--line); font:500 13px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums; align-items:center; opacity:{{ p.op }};">
+                    <span style="color:{{ p.nameColor }};">{{ p.name }}</span>
+                    <span style="text-align:center; color:var(--t1);">{{ p.k }}</span>
+                    <span style="text-align:center; color:var(--t2);">{{ p.d }}</span>
+                    <span style="text-align:right; color:var(--money);">{{ p.money }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <!-- CT table -->
+              <div style="border:1px solid var(--line); border-radius:8px; overflow:hidden;">
+                <div style="display:grid; grid-template-columns:1fr 34px 34px 60px; padding:8px 12px; font:600 10px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t3); background:rgba(77,155,230,0.08);"><span>PLAYER</span><span style="text-align:center;">K</span><span style="text-align:center;">D</span><span style="text-align:right;">MONEY</span></div>
+                <sc-for list="{{ teamCT }}" as="p" hint-placeholder-count="3">
+                  <div style="display:grid; grid-template-columns:1fr 34px 34px 60px; padding:9px 12px; border-top:1px solid var(--line); font:500 13px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums; align-items:center; opacity:{{ p.op }};">
+                    <span style="color:{{ p.nameColor }};">{{ p.name }}</span>
+                    <span style="text-align:center; color:var(--t1);">{{ p.k }}</span>
+                    <span style="text-align:center; color:var(--t2);">{{ p.d }}</span>
+                    <span style="text-align:right; color:var(--money);">{{ p.money }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="text-align:center; font:500 10px/1 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.1em; margin-top:14px;">† = ELIMINATED THIS ROUND</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROUND END -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Round-end banner</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sRound }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:var(--floor-fog); opacity:0.5;"></div>
+          <div style="position:absolute; inset:0; background:radial-gradient(circle at 50% 45%, rgba(77,155,230,0.12), transparent 55%);"></div>
+          <div style="position:absolute; left:0; right:0; top:50%; transform:translateY(-50%); text-align:center;">
+            <div style="font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.24em; color:var(--ct); margin-bottom:12px;">ROUND 5</div>
+            <div style="font:700 56px/1 'IBM Plex Sans Condensed'; letter-spacing:0.03em; color:var(--t1);">CT WIN THE ROUND</div>
+            <div style="font:400 16px/1 'IBM Plex Sans'; color:var(--t2); margin-top:14px;">Bomb defused with 0:04 remaining</div>
+            <div style="display:inline-flex; align-items:center; gap:16px; margin-top:22px; padding:12px 26px; background:rgba(10,13,17,0.7); border:1px solid var(--line); border-radius:10px; font:600 30px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums;"><span style="color:var(--t);">2</span><span style="font-size:16px; color:var(--t3);">FIRST TO 13</span><span style="color:var(--ct);">4</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MATCH END -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Match-end summary</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sMatch }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:linear-gradient(160deg, rgba(77,155,230,0.10), transparent 45%), var(--void2);"></div>
+          <div style="position:absolute; left:50%; top:70px; transform:translateX(-50%); text-align:center;">
+            <div style="font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.24em; color:var(--ct);">VICTORY</div>
+            <div style="font:700 60px/1 'IBM Plex Sans Condensed'; margin-top:10px;"><span style="color:var(--ct);">COUNTER-TERRORISTS</span></div>
+            <div style="font:600 44px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums; margin-top:14px;"><span style="color:var(--t);">9</span> <span style="color:var(--t3);">–</span> <span style="color:var(--ct);">13</span></div>
+          </div>
+          <!-- MVP + stats -->
+          <div style="position:absolute; left:50%; top:330px; transform:translateX(-50%); width:820px; display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+            <div style="border:1px solid var(--line); border-radius:10px; background:rgba(10,13,17,0.6); padding:20px;">
+              <div style="font:600 11px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; color:var(--warn); margin-bottom:10px;">◆ MATCH MVP</div>
+              <div style="font:600 20px/1 'IBM Plex Mono'; color:var(--ct);">CT-Bot 1</div>
+              <div style="display:flex; gap:22px; margin-top:14px; font:600 15px/1 'IBM Plex Mono'; font-variant-numeric:tabular-nums;"><span>28 <span style="color:var(--t3); font-size:11px;">KILLS</span></span><span>11 <span style="color:var(--t3); font-size:11px;">DEATHS</span></span><span style="color:var(--money);">$41k <span style="color:var(--t3); font-size:11px;">EARNED</span></span></div>
+            </div>
+            <div style="border:1px solid var(--line); border-radius:10px; background:rgba(10,13,17,0.6); padding:20px;">
+              <div style="font:600 11px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; color:var(--t3); margin-bottom:10px;">ROUND BREAKDOWN</div>
+              <div style="display:flex; gap:4px;">
+                <sc-for list="{{ roundDots }}" as="r" hint-placeholder-count="12">
+                  <span style="width:16px; height:16px; border-radius:4px; background:{{ r.css }};"></span>
+                </sc-for>
+              </div>
+              <div style="display:flex; gap:16px; margin-top:14px; font:500 11px/1 'IBM Plex Mono'; color:var(--t2);"><span><span style="color:var(--t);">■</span> T round</span><span><span style="color:var(--ct);">■</span> CT round</span></div>
+            </div>
+          </div>
+          <div style="position:absolute; left:50%; bottom:56px; transform:translateX(-50%); display:flex; gap:14px;">
+            <span style="font:700 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; padding:14px 30px; border-radius:8px; background:var(--t); color:#1a1207;">PLAY AGAIN</span>
+            <span style="font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; padding:14px 30px; border-radius:8px; border:1px solid var(--line); color:var(--t1);">MAIN MENU</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN MENU -->
+    <div>
+      <div style="font:700 14px/1 'IBM Plex Sans Condensed'; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:10px;">Main menu · mode select</div>
+      <div style="width:100%; aspect-ratio:16/9; border:1px solid var(--line); border-radius:10px; overflow:hidden; position:relative; container-type:inline-size;">
+        <div ref="{{ sMenu }}" style="position:absolute; top:0; left:0; width:1280px; height:720px; transform-origin:top left; background:var(--void2); font-family:'IBM Plex Mono';">
+          <div style="position:absolute; inset:0; background:radial-gradient(circle at 74% 40%, rgba(239,125,58,0.10), transparent 45%), radial-gradient(circle at 20% 80%, rgba(77,155,230,0.08), transparent 40%);"></div>
+          <!-- fog-cone flavor -->
+          <div style="position:absolute; right:120px; top:120px; width:360px; height:360px; clip-path:polygon(50% 100%, 0 10%, 100% 10%); background:radial-gradient(circle at 50% 90%, rgba(43,52,62,0.5), transparent 65%);"></div>
+          <div style="position:absolute; left:90px; top:120px;">
+            <div style="display:flex; align-items:center; gap:14px;"><span style="width:14px; height:14px; border-radius:50%; background:var(--t); box-shadow:0 0 0 4px rgba(239,125,58,0.2);"></span><span style="font:600 12px/1 'IBM Plex Mono'; color:var(--t3); letter-spacing:0.3em;">TACTICAL · TOP-DOWN</span></div>
+            <div style="font:700 90px/0.92 'IBM Plex Sans Condensed'; letter-spacing:-0.01em; margin-top:18px;">BREACH<br>POINT</div>
+          </div>
+          <div style="position:absolute; left:90px; top:430px; display:flex; flex-direction:column; gap:10px; width:340px;">
+            <div style="display:flex; align-items:center; gap:14px; padding:16px 20px; background:var(--t); border-radius:10px;"><span style="font:700 17px/1 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:#1a1207; flex:1;">COMPETITIVE</span><span style="font:500 11px/1 'IBM Plex Mono'; color:rgba(26,18,7,0.7);">first to 13</span></div>
+            <div style="display:flex; align-items:center; gap:14px; padding:16px 20px; border:1px solid var(--line); border-radius:10px;"><span style="font:600 17px/1 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--t1); flex:1;">CASUAL</span><span style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">vs bots</span></div>
+            <div style="display:flex; align-items:center; gap:14px; padding:16px 20px; border:1px solid var(--line); border-radius:10px;"><span style="font:600 17px/1 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--t1); flex:1;">PRACTICE RANGE</span></div>
+            <div style="display:flex; gap:10px; margin-top:8px;"><span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2); padding:11px 16px; border:1px solid var(--line); border-radius:8px;">SETTINGS</span><span style="font:600 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--t2); padding:11px 16px; border:1px solid var(--line); border-radius:8px;">QUIT</span></div>
+          </div>
+          <div style="position:absolute; right:28px; bottom:22px; font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">v0.8.0 · single-player build</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 5. COMPONENTS ============ -->
+  <div id="components" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">05</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">Component specs</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 32px;">The repeatable pieces, with the rules behind them. Every panel shares one recipe: <code style="font-family:'IBM Plex Mono'; color:var(--t1);">rgba(10,13,17,0.82)</code> fill, <code style="font-family:'IBM Plex Mono'; color:var(--t1);">1px #2A323B</code> border, 6–10px radius — so nothing on the HUD looks like it came from a different game.</p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <!-- banner -->
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:22px;">
+        <div style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2); margin-bottom:16px;">Center banner</div>
+        <div style="background:var(--floor-fog); border-radius:8px; padding:30px 20px; text-align:center; margin-bottom:14px;"><div style="font:600 11px/1 'IBM Plex Sans Condensed'; letter-spacing:0.24em; color:var(--ct); margin-bottom:8px;">ROUND 3</div><div style="font:700 34px/1 'IBM Plex Sans Condensed'; color:var(--t1);">BUY TIME</div></div>
+        <div style="font:400 12.5px/1.6 'IBM Plex Sans'; color:var(--t2);">Two-line lockup: a tracked <b style="color:var(--t1);">eyebrow</b> (context) over a <b style="color:var(--t1);">headline</b> (event). Fades in over 120ms, holds, fades out. Faction outcomes take the winning team's color on the eyebrow only — headline stays neutral white for legibility.</div>
+      </div>
+      <!-- progress bar -->
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:22px;">
+        <div style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2); margin-bottom:16px;">Progress bar — plant / defuse</div>
+        <div style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; font:600 10px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--bomb); margin-bottom:6px;"><span>PLANTING</span><span style="font-family:'IBM Plex Mono';">40%</span></div><div style="height:8px; border-radius:4px; background:rgba(10,13,17,0.8); border:1px solid var(--line); overflow:hidden;"><div style="width:40%; height:100%; background:var(--bomb);"></div></div></div>
+        <div><div style="display:flex; justify-content:space-between; font:600 10px/1 'IBM Plex Sans Condensed'; letter-spacing:0.1em; color:var(--ct); margin-bottom:6px;"><span>DEFUSING</span><span style="font-family:'IBM Plex Mono';">78%</span></div><div style="height:8px; border-radius:4px; background:rgba(10,13,17,0.8); border:1px solid var(--line); overflow:hidden;"><div style="width:78%; height:100%; background:var(--ct);"></div></div></div>
+        <div style="font:400 12.5px/1.6 'IBM Plex Sans'; color:var(--t2); margin-top:14px;">Fill color = <b style="color:var(--bomb);">objective orange</b> to plant, <b style="color:var(--ct);">CT blue</b> to defuse — the action's owner reads instantly. Label + tabular % ride above.</div>
+      </div>
+      <!-- kill feed -->
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:22px;">
+        <div style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2); margin-bottom:16px;">Kill-feed row</div>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:8px; background:rgba(10,13,17,0.72); padding:6px 10px; border-radius:5px; font:600 14px/1 'IBM Plex Mono';"><span style="color:var(--t);">T-Bot 2</span><span style="color:var(--t2);">✕</span><span style="color:var(--ct);">CT-Bot 4</span></div>
+          <div style="display:flex; align-items:center; gap:8px; background:rgba(10,13,17,0.72); padding:6px 10px; border-radius:5px; font:600 14px/1 'IBM Plex Mono';"><span style="color:var(--ct);">CT-Bot 1</span><span style="color:var(--danger);">✕</span><span style="color:var(--t);">You</span></div>
+        </div>
+        <div style="font:400 12.5px/1.6 'IBM Plex Sans'; color:var(--t2);">Killer left, victim right, both in their faction color. Right-aligned, newest on top, each row lives ~5s then fades. Your own death tints the ✕ danger-red so it catches the eye you're not using to aim.</div>
+      </div>
+      <!-- buy row -->
+      <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:22px;">
+        <div style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2); margin-bottom:16px;">Buy-menu item</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:12px; padding:11px 13px; border:1px solid var(--line); border-radius:8px; background:rgba(43,52,62,0.35);"><span style="width:24px;height:24px;border-radius:6px;background:var(--t);display:flex;align-items:center;justify-content:center;font:700 12px/1 'IBM Plex Mono';color:#1a1207;">1</span><span style="flex:1; font:600 15px/1 'IBM Plex Sans Condensed';">RIFLE</span><span style="font:500 13px/1 'IBM Plex Mono'; color:var(--money);">$2700</span></div>
+          <div style="display:flex; align-items:center; gap:12px; padding:11px 13px; border:1px solid var(--line); border-radius:8px; opacity:0.5;"><span style="width:24px;height:24px;border-radius:6px;background:var(--floor2);display:flex;align-items:center;justify-content:center;font:700 12px/1 'IBM Plex Mono';color:var(--t3);">4</span><span style="flex:1; font:600 15px/1 'IBM Plex Sans Condensed';">HEAVY</span><span style="font:500 13px/1 'IBM Plex Mono'; color:var(--danger);">$4750</span></div>
+        </div>
+        <div style="font:400 12.5px/1.6 'IBM Plex Sans'; color:var(--t2);">Number key in a faction-colored chip, name in condensed, price in mono. Affordable = money green; can't afford = danger red and the row drops to 50% — still number-key driven, now scannable as a grid.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 6. WORLD STYLING ============ -->
+  <div id="world" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">06</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">World styling &amp; effects</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 32px;">Richness comes from a few cheap, flat treatments — a top-edge highlight, site striping, spawn markings — never from texture. Every one survives the fog multiplier because it's built from the same tokens the fog already knows how to dim.</p>
+
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px;">
+      <!-- wall -->
+      <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel);">
+        <div style="height:140px; background:var(--floor); position:relative; display:flex; align-items:center; justify-content:center;">
+          <div style="width:60px; height:90px; background:var(--wall); border-top:4px solid var(--wall-top); box-shadow:3px 0 0 var(--wall-dark), 0 6px 12px rgba(0,0,0,0.4);"></div>
+        </div>
+        <div style="padding:14px 16px;"><div style="font:600 13px/1.2 'IBM Plex Sans Condensed';">Wall — top-edge highlight</div><div style="font:400 12px/1.5 'IBM Plex Sans'; color:var(--t2); margin-top:4px;">A 3–4px lighter cap on the north edge + a dark right shadow fakes height cheaply and shows which side is cover.</div></div>
+      </div>
+      <!-- site -->
+      <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel);">
+        <div style="height:140px; background:var(--site); position:relative; display:flex; align-items:center; justify-content:center; background-image:repeating-linear-gradient(45deg, transparent 0 14px, rgba(255,176,32,0.06) 14px 18px);">
+          <span style="font:700 90px/1 'IBM Plex Sans Condensed'; color:rgba(255,176,32,0.14);">A</span>
+          <span style="position:absolute; inset:8px; border:1px dashed rgba(255,176,32,0.28); border-radius:4px;"></span>
+        </div>
+        <div style="padding:14px 16px;"><div style="font:600 13px/1.2 'IBM Plex Sans Condensed';">Bombsite floor</div><div style="font:400 12px/1.5 'IBM Plex Sans'; color:var(--t2); margin-top:4px;">Warm tint + faint 45° striping + a dashed boundary + the giant 15%-alpha letter. Reads as "objective ground" even at fog edge.</div></div>
+      </div>
+      <!-- spawn -->
+      <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel);">
+        <div style="height:140px; background:var(--floor); position:relative; display:flex; align-items:center; justify-content:center;">
+          <div style="width:96px; height:70px; border:2px solid rgba(239,125,58,0.4); border-radius:6px; background:repeating-linear-gradient(-45deg, transparent 0 8px, rgba(239,125,58,0.06) 8px 12px); display:flex; align-items:center; justify-content:center; font:600 10px/1 'IBM Plex Sans Condensed'; letter-spacing:0.16em; color:rgba(239,125,58,0.7);">T SPAWN</div>
+        </div>
+        <div style="padding:14px 16px;"><div style="font:600 13px/1.2 'IBM Plex Sans Condensed';">Spawn-zone marking</div><div style="font:400 12px/1.5 'IBM Plex Sans'; color:var(--t2); margin-top:4px;">Faction-tinted hatched rectangle, drawn only during buy/freeze time then faded — orient without cluttering the firefight.</div></div>
+      </div>
+    </div>
+
+    <!-- effect tuning -->
+    <div style="border:1px solid var(--line); border-radius:10px; background:var(--panel); margin-top:16px; padding:22px 24px;">
+      <div style="font:700 12px/1 'IBM Plex Sans Condensed'; letter-spacing:0.14em; text-transform:uppercase; color:var(--t2); margin-bottom:18px;">Effect color tuning</div>
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:20px;">
+        <div style="text-align:center;"><div style="height:70px; border-radius:8px; background:var(--void); display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;"><span style="width:80%; height:3px; background:linear-gradient(90deg,transparent,var(--tracer)); box-shadow:0 0 8px var(--tracer);"></span></div><div style="font:600 12px/1.3 'IBM Plex Sans Condensed'; margin-top:8px;">Tracer</div><div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); margin-top:3px;">#FFE9A0</div></div>
+        <div style="text-align:center;"><div style="height:70px; border-radius:8px; background:var(--void); display:flex; align-items:center; justify-content:center;"><span style="width:34px; height:26px; border-radius:50%; background:var(--blood); filter:blur(1px);"></span></div><div style="font:600 12px/1.3 'IBM Plex Sans Condensed'; margin-top:8px;">Blood decal</div><div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); margin-top:3px;">#7A1C1C</div></div>
+        <div style="text-align:center;"><div style="height:70px; border-radius:8px; background:var(--void); display:flex; align-items:center; justify-content:center;"><span style="width:26px; height:26px; border-radius:50%; background:radial-gradient(circle,#fff,var(--hit) 55%,transparent 75%);"></span></div><div style="font:600 12px/1.3 'IBM Plex Sans Condensed'; margin-top:8px;">Hit / death ring</div><div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); margin-top:3px;">#FF5544</div></div>
+        <div style="text-align:center;"><div style="height:70px; border-radius:8px; background:var(--void); display:flex; align-items:center; justify-content:center; gap:4px;"><span style="width:6px; height:3px; background:var(--brass); transform:rotate(20deg);"></span><span style="width:5px; height:5px; border-radius:50%; background:var(--void2); box-shadow:0 0 0 1px var(--wall-dark);"></span></div><div style="font:600 12px/1.3 'IBM Plex Sans Condensed'; margin-top:8px;">Brass / bullet hole</div><div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3); margin-top:3px;">#D9B24A · #14171C</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 7. DO / DON'T ============ -->
+  <div id="rules" style="max-width:1240px; margin:0 auto; padding:78px 40px 0; scroll-margin-top:80px;">
+    <div style="display:flex; align-items:baseline; gap:16px; margin-bottom:8px;">
+      <span style="font:600 13px/1 'IBM Plex Mono'; color:var(--t); letter-spacing:0.2em;">07</span>
+      <h2 style="font:700 34px/1 'IBM Plex Sans Condensed'; margin:0; letter-spacing:-0.01em;">Do / Don't — keep it on-system</h2>
+    </div>
+    <p style="font:400 16px/1.6 'IBM Plex Sans'; color:var(--t2); max-width:64ch; margin:0 0 32px;">The test any future addition (grenades, armor, minimap, a second map) must pass before it ships.</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div style="border:1px solid rgba(95,208,138,0.25); border-radius:12px; background:rgba(95,208,138,0.04); padding:24px;">
+        <div style="font:700 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; color:var(--money); margin-bottom:16px;">✓ DO</div>
+        <div style="display:flex; flex-direction:column; gap:13px;">
+          <sc-for list="{{ dos }}" as="d" hint-placeholder-count="6">
+            <div style="display:flex; gap:11px; font:400 14px/1.55 'IBM Plex Sans'; color:var(--t1);"><span style="color:var(--money); flex:none;">▸</span><span style="color:var(--t2);">{{ d }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border:1px solid rgba(229,72,77,0.25); border-radius:12px; background:rgba(229,72,77,0.04); padding:24px;">
+        <div style="font:700 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; color:var(--danger); margin-bottom:16px;">✕ DON'T</div>
+        <div style="display:flex; flex-direction:column; gap:13px;">
+          <sc-for list="{{ donts }}" as="d" hint-placeholder-count="6">
+            <div style="display:flex; gap:11px; font:400 14px/1.55 'IBM Plex Sans'; color:var(--t1);"><span style="color:var(--danger); flex:none;">▸</span><span style="color:var(--t2);">{{ d }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- footer -->
+    <div style="margin-top:60px; padding-top:26px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+      <div style="font:600 13px/1.4 'IBM Plex Sans Condensed'; letter-spacing:0.06em; color:var(--t2);">BREACHPOINT · VISUAL SYSTEM v1 — feeds Phase 8 content &amp; polish</div>
+      <div style="font:500 11px/1 'IBM Plex Mono'; color:var(--t3);">tokens · type · faction · HUD · components · world · rules</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;nightfall&quot;,&quot;ember&quot;],&quot;default&quot;:&quot;nightfall&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.state = { palette: (props.palette || 'nightfall') };
+    this._els = {};
+    this._refCbs = {};
+    this.palettes = {
+      nightfall: {
+        '--void':'#0d1014','--void2':'#0a0d11','--floor':'#1b2027','--floor2':'#20262e','--floor-fog':'#0f1319',
+        '--site':'#2c2820','--site-line':'#544824','--wall':'#3f4a56','--wall-top':'#57646f','--wall-dark':'#2b333c',
+        '--t':'#ef7d3a','--ct':'#4d9be6','--me':'#ffffff',
+        '--hp-good':'#5fd08a','--hp-mid':'#e8b13a','--hp-low':'#e5484d',
+        '--bomb':'#ffb020','--bomb-plant':'#ff4d4d','--tracer':'#ffe9a0','--blood':'#7a1c1c','--hit':'#ff5544','--brass':'#d9b24a',
+        '--t1':'#e8eef4','--t2':'#99a6b3','--t3':'#5d6a77','--money':'#6bd08a','--warn':'#f0b429','--danger':'#e5484d',
+        '--panel':'rgba(15,19,25,0.94)','--panel-2':'rgba(20,26,33,0.96)','--line':'#2a323b'
+      },
+      ember: {
+        '--void':'#120f0c','--void2':'#0d0a08','--floor':'#221d17','--floor2':'#28221a','--floor-fog':'#140f0a',
+        '--site':'#2e2417','--site-line':'#5a4a22','--wall':'#4b443b','--wall-top':'#61574a','--wall-dark':'#332d25',
+        '--t':'#f0842f','--ct':'#4fa3ef','--me':'#ffffff',
+        '--hp-good':'#67cf7f','--hp-mid':'#e8ad33','--hp-low':'#e8514a',
+        '--bomb':'#ffb020','--bomb-plant':'#ff5040','--tracer':'#ffe6a0','--blood':'#7a1c1c','--hit':'#ff5544','--brass':'#d9b24a',
+        '--t1':'#f2ece3','--t2':'#a89c8d','--t3':'#6b6152','--money':'#79cf82','--warn':'#f0b429','--danger':'#e8514a',
+        '--panel':'rgba(20,16,12,0.94)','--panel-2':'rgba(28,22,16,0.96)','--line':'#3a332a'
+      }
+    };
+  }
+
+  getRef(name){
+    if(!this._refCbs[name]){
+      this._refCbs[name] = (el) => {
+        this._els[name] = el;
+        if(el){ this.applyPalette(); this.fitScenes(); }
+      };
+    }
+    return this._refCbs[name];
+  }
+
+  applyPalette(){
+    const el = this._els.root;
+    if(!el) return;
+    const p = this.palettes[this.state.palette] || this.palettes.nightfall;
+    Object.keys(p).forEach(k => el.style.setProperty(k, p[k]));
+  }
+
+  fitScenes(){
+    // scale each 1280x720 scene to its container width
+    const scenes = ['heroScene','sBuy','sPlant','sDead','sBoard','sRound','sMatch','sMenu'];
+    scenes.forEach(key => {
+      const el = this._els[key];
+      if(!el || !el.parentElement) return;
+      const w = el.parentElement.clientWidth;
+      if(w) el.style.transform = 'scale(' + (w/1280) + ')';
+    });
+  }
+
+  componentDidMount(){
+    this.applyPalette();
+    this.fitScenes();
+    this._onResize = () => this.fitScenes();
+    window.addEventListener('resize', this._onResize);
+    // refit after fonts settle
+    setTimeout(() => this.fitScenes(), 300);
+  }
+  componentDidUpdate(){ this.applyPalette(); this.fitScenes(); }
+  componentWillUnmount(){ window.removeEventListener('resize', this._onResize); }
+
+  renderVals(){
+    const pal = this.state.palette;
+    const activeBtn = 'font:600 12px/1 \'IBM Plex Sans Condensed\'; letter-spacing:0.06em; text-transform:uppercase; padding:8px 14px; border:none; cursor:pointer; background:var(--t); color:#1a1207;';
+    const idleBtn = 'font:600 12px/1 \'IBM Plex Sans Condensed\'; letter-spacing:0.06em; text-transform:uppercase; padding:8px 14px; border:none; cursor:pointer; background:transparent; color:var(--t2);';
+
+    const worldTokens = [
+      {role:'Void / off-map', token:'--void', hex:'#0D1014', css:'var(--void)'},
+      {role:'Floor', token:'--floor', hex:'#1B2027', css:'var(--floor)'},
+      {role:'Floor tile line', token:'--floor2', hex:'#20262E', css:'var(--floor2)'},
+      {role:'Fogged floor (14%)', token:'--floor-fog', hex:'#0F1319', css:'var(--floor-fog)'},
+      {role:'Bombsite floor', token:'--site', hex:'#2C2820', css:'var(--site)'},
+      {role:'Wall', token:'--wall', hex:'#3F4A56', css:'var(--wall)'},
+      {role:'Wall top-edge', token:'--wall-top', hex:'#57646F', css:'var(--wall-top)'},
+      {role:'Wall shadow', token:'--wall-dark', hex:'#2B333C', css:'var(--wall-dark)'}
+    ];
+    const factionTokens = [
+      {role:'Terrorist (T)', token:'--t', hex:'#EF7D3A', css:'var(--t)'},
+      {role:'Counter-Terrorist (CT)', token:'--ct', hex:'#4D9BE6', css:'var(--ct)'},
+      {role:'You — outline ring', token:'--me', hex:'#FFFFFF', css:'var(--me)'},
+      {role:'HP good', token:'--hp-good', hex:'#5FD08A', css:'var(--hp-good)'},
+      {role:'HP mid', token:'--hp-mid', hex:'#E8B13A', css:'var(--hp-mid)'},
+      {role:'HP low', token:'--hp-low', hex:'#E5484D', css:'var(--hp-low)'}
+    ];
+    const hudTokens = [
+      {role:'Text primary', token:'--t1', hex:'#E8EEF4', css:'var(--t1)'},
+      {role:'Text secondary', token:'--t2', hex:'#99A6B3', css:'var(--t2)'},
+      {role:'Text muted', token:'--t3', hex:'#5D6A77', css:'var(--t3)'},
+      {role:'Money / success', token:'--money', hex:'#6BD08A', css:'var(--money)'},
+      {role:'Warning / amber', token:'--warn', hex:'#F0B429', css:'var(--warn)'},
+      {role:'Danger', token:'--danger', hex:'#E5484D', css:'var(--danger)'},
+      {role:'Panel fill', token:'--panel', hex:'rgba(15,19,25,.94)', css:'var(--panel)'},
+      {role:'Panel border', token:'--line', hex:'#2A323B', css:'var(--line)'}
+    ];
+    const fxTokens = [
+      {role:'Objective / bomb', token:'--bomb', hex:'#FFB020', css:'var(--bomb)'},
+      {role:'Planted ring', token:'--bomb-plant', hex:'#FF4D4D', css:'var(--bomb-plant)'},
+      {role:'Tracer / muzzle', token:'--tracer', hex:'#FFE9A0', css:'var(--tracer)'},
+      {role:'Hit / death ring', token:'--hit', hex:'#FF5544', css:'var(--hit)'},
+      {role:'Blood decal', token:'--blood', hex:'#7A1C1C', css:'var(--blood)'},
+      {role:'Shell casing (brass)', token:'--brass', hex:'#D9B24A', css:'var(--brass)'},
+      {role:'Bullet hole', token:'--bullet', hex:'#14171C', css:'#14171C'}
+    ];
+
+    const typeScale = [
+      {use:'Bomb countdown', sample:'0:31', style:"font:600 30px/1 'IBM Plex Mono'; color:var(--bomb-plant); font-variant-numeric:tabular-nums;", font:'Plex Mono 600', size:'34 px'},
+      {use:'HP / ammo', sample:'100', style:"font:600 26px/1 'IBM Plex Mono'; color:var(--t1); font-variant-numeric:tabular-nums;", font:'Plex Mono 600', size:'40 px'},
+      {use:'Money', sample:'$3400', style:"font:600 22px/1 'IBM Plex Mono'; color:var(--money); font-variant-numeric:tabular-nums;", font:'Plex Mono 600', size:'30 px'},
+      {use:'Banner headline', sample:'BOMB PLANTED', style:"font:700 24px/1 'IBM Plex Sans Condensed'; letter-spacing:0.04em;", font:'Sans Cond 700', size:'34–56'},
+      {use:'Banner eyebrow', sample:'ROUND 5', style:"font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.22em; color:var(--ct);", font:'Sans Cond 600', size:'13 px'},
+      {use:'Kill feed / scoreboard', sample:'T-Bot 2  ✕  CT-Bot 4', style:"font:600 15px/1 'IBM Plex Mono';", font:'Plex Mono 600', size:'13–14'},
+      {use:'HUD label', sample:'ARMOR', style:"font:600 13px/1 'IBM Plex Sans Condensed'; letter-spacing:0.12em; color:var(--t2);", font:'Sans Cond 600', size:'12–14'}
+    ];
+
+    const teamT = [
+      {name:'You', nameColor:'var(--me)', k:'19', d:'12', money:'$1400', op:'1'},
+      {name:'T-Bot 2', nameColor:'var(--t)', k:'14', d:'15', money:'$800', op:'1'},
+      {name:'† T-Bot 3', nameColor:'var(--t3)', k:'9', d:'18', money:'$0', op:'0.45'}
+    ];
+    const teamCT = [
+      {name:'CT-Bot 1', nameColor:'var(--ct)', k:'28', d:'11', money:'$5200', op:'1'},
+      {name:'CT-Bot 4', nameColor:'var(--ct)', k:'17', d:'13', money:'$3100', op:'1'},
+      {name:'† CT-Bot 2', nameColor:'var(--t3)', k:'11', d:'16', money:'$0', op:'0.45'}
+    ];
+
+    const rw = ['t','ct','ct','t','ct','ct','ct','t','ct','ct','t','ct'];
+    const roundDots = rw.map(w => ({ css: w==='t' ? 'var(--t)' : 'var(--ct)' }));
+
+    const dos = [
+      'Encode team identity with the fixed orange/CT-blue pair — hue AND luminance, never one alone.',
+      'Pull every new color from an existing token; if a role has no token, add one here first.',
+      'Keep the screen center clear — new HUD lives in the corners and edges.',
+      'Animate only to signal urgency (bomb timer, damage arc). Everything else is still.',
+      'Test each new element both fully lit and dimmed to the 14% fog floor.',
+      'Use Plex Mono + tabular figures for anything that ticks; Condensed for loud short words.'
+    ];
+    const donts = [
+      "Don't introduce gradients, textures, glossy bevels or sprite art — flat vector only.",
+      "Don't rely on red-vs-green to separate anything a colorblind player must read.",
+      "Don't place status, banners or feeds over the crosshair zone.",
+      "Don't invent one-off hex values in game code — a palette change must be a token change.",
+      "Don't add idle pulsing, bobbing or glow that isn't carrying information.",
+      "Don't tint teammates individually — same faction hue, disambiguate by name label."
+    ];
+
+    return {
+      root: this.getRef('root'),
+      heroScene: this.getRef('heroScene'), sBuy: this.getRef('sBuy'), sPlant: this.getRef('sPlant'),
+      sDead: this.getRef('sDead'), sBoard: this.getRef('sBoard'), sRound: this.getRef('sRound'),
+      sMatch: this.getRef('sMatch'), sMenu: this.getRef('sMenu'),
+      setNightfall: () => this.setState({ palette: 'nightfall' }),
+      setEmber: () => this.setState({ palette: 'ember' }),
+      btnNightfall: pal === 'nightfall' ? activeBtn : idleBtn,
+      btnEmber: pal === 'ember' ? activeBtn : idleBtn,
+      worldTokens, factionTokens, hudTokens, fxTokens, typeScale,
+      teamT, teamCT, roundDots, dos, donts
+    };
+  }
+}
+</script>
+</body>
+</html>

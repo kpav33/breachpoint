@@ -35,5 +35,6 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 
 - Inside `src/core/`, relative imports use explicit `.ts` extensions (e.g. `from './types.ts'`) so core runs directly under `node --experimental-strip-types` — used for headless sim testing, required by the future server.
 - Gameplay constants (speeds, weapon stats, cone angle, economy numbers) always live in `core/config.ts` — never hardcode them at usage sites.
+- Render-side colors and fonts always come from `src/game/theme.ts` tokens (the visual system spec lives in `design/`; brief in `docs/DESIGN_BRIEF.md`) — never invent one-off hex values in game code. World tile colors in `tools/generate-map.mjs` mirror `theme.ts` WORLD and must stay in sync.
 - Extend the debug overlay (backtick toggle) whenever you add a system that has invisible state (rays, polygons, bot states, paths).
 - After completing a phase: run lint + build, summarize what changed, and update this file if commands or conventions changed. Do not start the next phase unprompted.

@@ -3,6 +3,7 @@ import type { Segment, Vec2 } from '../../core/types';
 import { AWARENESS_RADIUS, FULL_CIRCLE_VISION } from '../../core/config';
 import { visibilityPolygon } from '../../core/vision';
 import type { VisionResult } from '../../core/vision';
+import { WORLD } from '../theme';
 
 /** How dark the unseen world is (0..1). Render-side constant. */
 const DARKNESS_ALPHA = 0.86;
@@ -70,7 +71,9 @@ export class VisionSystem {
     const toScreen = (p: Vec2) => ({ x: p.x - cam.scrollX, y: p.y - cam.scrollY });
 
     this.rt.clear();
-    this.rt.fill(0x04060a, DARKNESS_ALPHA);
+    // Fog is the void color at high alpha, so the unseen world sinks toward
+    // the palette's darkness temperature instead of plain black.
+    this.rt.fill(WORLD.void2, DARKNESS_ALPHA);
     const g = this.stamp;
     g.clear();
     g.fillStyle(0xffffff, 1);

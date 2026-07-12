@@ -10,6 +10,7 @@ import {
   DEFUSE_KIT_PRICE,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
+  ROUND_TIME_SEC,
   START_MONEY,
   TEAM_SIZE,
   TICK_RATE,
@@ -39,12 +40,11 @@ import { PlayerView } from '../game/entities/PlayerView';
 import { BotController } from '../game/bots/BotController';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
-import type { BuyMenuItem, HudData, HudSource, ScoreboardRow } from './UIScene';
+import type { Banner, BuyMenuItem, HudData, HudSource, ScoreboardRow } from './UIScene';
 import { UIScene } from './UIScene';
+import { BOMB, BOMB_CSS, BOMB_PLANT, DANGER_NUM, FACTION, FACTION_CSS } from '../game/theme';
 
 const HUMAN_ID = 'p1';
-const T_BOT_COLORS = [0x3d8fd9, 0x62b8e8];
-const CT_BOT_COLORS = [0xd9534f, 0xd97b3c, 0xc94f70, 0xe06666, 0xb84a5e];
 const BUY_ITEMS: { item: WeaponId | 'kit'; label: string }[] = [
   { item: 'smg', label: 'SMG' },
   { item: 'rifle', label: 'Rifle' },
@@ -88,7 +88,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   private bombGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
   private damageIndicators: { angle: number; age: number }[] = [];
-  private banner: { text: string; sub: string; ttl: number } | null = null;
+  private banner: (Banner & { ttl: number }) | null = null;
   private lastPlantPos: Vec2 = { x: 0, y: 0 };
   private beepAcc = 0;
   private followedId: string | null = null;
@@ -130,7 +130,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.bindLoadoutCheats();
 
     this.scene.launch('UI', { source: this });
-    this.ui = this.scene.get('UI') as UIScene;
+    this.ui = this.scene.get('UI') as unknown as UIScene;
   }
 
   /** 1 human + bots on T vs all-bot CT side, sized by TEAM_SIZE. */
@@ -142,12 +142,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
     ];
     const profile = BOT_PROFILES[BOT_DIFFICULTY];
 
-    const add = (id: string, team: Team, name: string, color: number, isBot: boolean): void => {
+    const add = (id: string, team: Team, name: string, isBot: boolean): void => {
       const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
       const idx = team === 'T' ? this.tIds.length : this.ctIds.length;
       const at = spawns[idx % spawns.length];
       this.state.players[id] = createPlayer(id, team, at.x, at.y);
-      this.views[id] = new PlayerView(this, at.x, at.y, color);
+      this.views[id] = new PlayerView(this, at.x, at.y, team, id === HUMAN_ID);
       this.prev[id] = { x: at.x, y: at.y, angle: 0 };
       this.names[id] = name;
       (team === 'T' ? this.tIds : this.ctIds).push(id);
@@ -157,12 +157,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
       }
     };
 
-    add(HUMAN_ID, 'T', 'You', 0x4da6ff, false);
+    add(HUMAN_ID, 'T', 'You', false);
     for (let i = 1; i < TEAM_SIZE; i++) {
-      add(`t${i + 1}`, 'T', `T-Bot ${i + 1}`, T_BOT_COLORS[(i - 1) % T_BOT_COLORS.length], true);
+      add(`t${i + 1}`, 'T', `T-Bot ${i + 1}`, true);
     }
     for (let i = 0; i < TEAM_SIZE; i++) {
-      add(`ct${i + 1}`, 'CT', `CT-Bot ${i + 1}`, CT_BOT_COLORS[i % CT_BOT_COLORS.length], true);
+      add(`ct${i + 1}`, 'CT', `CT-Bot ${i + 1}`, true);
     }
     for (const id of this.tIds) this.bots[id]?.setEnemies(this.ctIds);
     for (const id of this.ctIds) this.bots[id]?.setEnemies(this.tIds);
@@ -276,8 +276,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
       bombTimeLeft: bomb.timeLeft,
       carryingBomb: bomb.carrierId === HUMAN_ID,
       action,
-      banner: this.banner?.text ?? this.phaseBanner(),
-      subBanner: this.banner?.sub ?? this.phaseSubBanner(),
+      banner: this.banner ?? this.phaseBanner(),
       spectating: subjectId !== HUMAN_ID ? this.names[subjectId] : null,
       buyMenu: canBuy(this.match) && me.hp > 0 ? this.buildBuyMenu() : null,
       scoreboard: this.buildScoreboard(),
@@ -288,19 +287,20 @@ export class GameScene extends Phaser.Scene implements HudSource {
     tryBuy(this.match, this.state, HUMAN_ID, item);
   }
 
-  private phaseBanner(): string | null {
+  /** Default banner when no event banner is live. */
+  private phaseBanner(): Banner | null {
     switch (this.match.phase) {
       case 'warmup':
-        return 'WARMUP';
+        return { eyebrow: 'BREACHPOINT', headline: 'WARMUP', sub: null };
       case 'buy':
-        return 'BUY TIME';
+        return {
+          eyebrow: `ROUND ${this.match.round}`,
+          headline: 'BUY TIME',
+          sub: 'press 1–4 to buy · movement unlocks at round start',
+        };
       default:
         return null;
     }
-  }
-
-  private phaseSubBanner(): string | null {
-    return this.match.phase === 'buy' ? 'press 1–4 to buy · movement unlocks when the round starts' : null;
   }
 
   private buildBuyMenu(): BuyMenuItem[] {
@@ -414,13 +414,25 @@ export class GameScene extends Phaser.Scene implements HudSource {
             defusal: 'bomb defused',
             time: 'time ran out',
           }[ev.reason];
-          this.setBanner(`${ev.winner} WIN THE ROUND`, reasonText, 3800);
+          this.setBanner(
+            {
+              eyebrow: `ROUND ${this.match.round}`,
+              eyebrowColor: FACTION_CSS[ev.winner],
+              headline: `${ev.winner} WIN THE ROUND`,
+              sub: reasonText,
+            },
+            3800,
+          );
           break;
         }
         case 'match_end':
           this.setBanner(
-            `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`,
-            `final score  T ${this.match.score.T} : ${this.match.score.CT} CT`,
+            {
+              eyebrow: `FINAL · T ${this.match.score.T} : ${this.match.score.CT} CT`,
+              eyebrowColor: FACTION_CSS[ev.winner],
+              headline: `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`,
+              sub: 'refresh to play again',
+            },
             Number.POSITIVE_INFINITY,
           );
           break;
@@ -428,7 +440,10 @@ export class GameScene extends Phaser.Scene implements HudSource {
           this.lastPlantPos = { ...ev.pos };
           this.beepAcc = 0;
           this.audio.play('bomb_plant', ev.pos);
-          this.setBanner('BOMB PLANTED', `${BOMB_TIMER_SEC} seconds to detonation`, 2500);
+          this.setBanner(
+            { eyebrow: 'OBJECTIVE', eyebrowColor: BOMB_CSS, headline: 'BOMB PLANTED', sub: `${BOMB_TIMER_SEC} seconds to detonation` },
+            2500,
+          );
           break;
         case 'defused':
           this.audio.play('bomb_defused', this.lastPlantPos);
@@ -439,11 +454,11 @@ export class GameScene extends Phaser.Scene implements HudSource {
           break;
         case 'kill': {
           const killerTeam = this.state.players[ev.killerId]?.team;
-          const color =
-            ev.killerId === 'bomb' ? '#ff9500' : killerTeam === 'CT' ? '#6699ff' : '#e0a050';
+          const color = killerTeam ? FACTION_CSS[killerTeam] : BOMB_CSS;
           this.ui.addKillFeedLine(
             `${this.names[ev.killerId] ?? ev.killerId} ✕ ${this.names[ev.victimId] ?? ev.victimId}`,
             color,
+            ev.victimId === HUMAN_ID,
           );
           break;
         }
@@ -464,7 +479,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
     for (const bot of Object.values(this.bots)) bot.reset();
     this.follow(HUMAN_ID);
-    this.setBanner(`ROUND ${this.match.round}`, 'buy time', 2000);
+    this.banner = null; // the buy-phase default banner takes over
     this.autoBuyBots();
   }
 
@@ -478,8 +493,8 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
   }
 
-  private setBanner(text: string, sub: string, ttl: number): void {
-    this.banner = { text, sub, ttl };
+  private setBanner(banner: Banner, ttl: number): void {
+    this.banner = { ...banner, ttl };
   }
 
   private updateBanner(delta: number): void {
@@ -493,17 +508,18 @@ export class GameScene extends Phaser.Scene implements HudSource {
     const bomb = this.match.bomb;
     const g = this.bombGfx;
     g.clear();
+    this.drawSpawnZones(g);
     if (bomb.droppedAt) {
-      g.fillStyle(0xff9500, 1);
+      g.fillStyle(BOMB, 1);
       g.fillRect(bomb.droppedAt.x - 5, bomb.droppedAt.y - 4, 10, 8);
-      g.lineStyle(1, 0x0d0f12, 1);
+      g.lineStyle(1, 0x0d1014, 1);
       g.strokeRect(bomb.droppedAt.x - 5, bomb.droppedAt.y - 4, 10, 8);
     }
     if (bomb.plantedAt) {
       const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 90);
-      g.fillStyle(0xff9500, 1);
+      g.fillStyle(BOMB, 1);
       g.fillCircle(bomb.plantedAt.x, bomb.plantedAt.y, 6);
-      g.lineStyle(2, 0xff5544, 0.4 + 0.6 * pulse);
+      g.lineStyle(2, BOMB_PLANT, 0.4 + 0.6 * pulse);
       g.strokeCircle(bomb.plantedAt.x, bomb.plantedAt.y, 10 + 4 * pulse);
 
       if (this.match.phase === 'live') {
@@ -518,6 +534,41 @@ export class GameScene extends Phaser.Scene implements HudSource {
 
     for (const [id, view] of Object.entries(this.views)) {
       view.setBombCarrier(bomb.carrierId === id);
+    }
+  }
+
+  /**
+   * Faction-tinted hatched spawn rectangles, shown during buy/freeze time
+   * and faded out over the first second of LIVE — orient without
+   * cluttering the firefight.
+   */
+  private drawSpawnZones(g: Phaser.GameObjects.Graphics): void {
+    let alpha = 0;
+    if (this.match.phase === 'buy' || this.match.phase === 'warmup') alpha = 1;
+    else if (this.match.phase === 'live') {
+      const intoLive = ROUND_TIME_SEC - this.match.phaseTimeLeft;
+      alpha = Phaser.Math.Clamp(1 - intoLive / 1.2, 0, 1);
+    }
+    if (alpha <= 0) return;
+
+    const pad = 44;
+    for (const team of ['T', 'CT'] as const) {
+      const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
+      const minX = Math.min(...spawns.map((p) => p.x)) - pad;
+      const maxX = Math.max(...spawns.map((p) => p.x)) + pad;
+      const minY = Math.min(...spawns.map((p) => p.y)) - pad;
+      const maxY = Math.max(...spawns.map((p) => p.y)) + pad;
+      g.lineStyle(2, FACTION[team], 0.4 * alpha);
+      g.strokeRect(minX, minY, maxX - minX, maxY - minY);
+      g.lineStyle(1, FACTION[team], 0.14 * alpha);
+      for (let x = minX - (maxY - minY); x < maxX; x += 14) {
+        // 45° hatching, clipped to the rect's vertical span.
+        const x0 = Math.max(x, minX);
+        const y0 = minY + (x0 - x);
+        const x1 = Math.min(x + (maxY - minY), maxX);
+        const y1 = minY + (x1 - x);
+        if (y0 < maxY) g.lineBetween(x0, y0, x1, y1);
+      }
     }
   }
 
@@ -564,7 +615,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
         continue;
       }
       const fade = 1 - ind.age / 700;
-      g.lineStyle(5, 0xd9302c, 0.8 * fade);
+      g.lineStyle(5, DANGER_NUM, 0.8 * fade);
       g.beginPath();
       g.arc(cx, cy, 64, ind.angle - 0.5, ind.angle + 0.5);
       g.strokePath();
