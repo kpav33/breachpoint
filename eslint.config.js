@@ -47,4 +47,32 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Phase 9: the headless game server runs core/ + match/ + ai/ under Node.
+    // It must never pull in Phaser or any render-side code.
+    files: ['server/**/*.ts', 'src/match/**/*.ts', 'src/ai/**/*.ts', 'src/net/protocol.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'phaser',
+              message: 'Server-shared code is headless and must never import Phaser.',
+            },
+            {
+              name: 'colyseus.js',
+              message: 'colyseus.js is the browser client — server code uses the colyseus package.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['**/game/**', '**/scenes/**'],
+              message: 'Server-shared code must not import render-side code (src/game/, src/scenes/).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

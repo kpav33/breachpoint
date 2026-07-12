@@ -100,6 +100,20 @@ export const BOMB_PICKUP_RANGE_PX = 32;
 export const BOMB_DAMAGE = 500;
 export const BOMB_RADIUS_PX = 550;
 
+// --- Networking (Phase 9) --------------------------------------------------
+/** Server → client full-state snapshot broadcast rate, Hz. */
+export const SNAPSHOT_RATE = 15;
+/** Default port the Colyseus server listens on (dev). */
+export const DEFAULT_SERVER_PORT = 2567;
+/** Max buffered InputCommands per player; the oldest are dropped beyond this. */
+export const INPUT_QUEUE_MAX = 8;
+/** Max players in an online room. */
+export const MAX_ONLINE_PLAYERS = 10;
+/** Remote players render this far in the past, lerped between snapshots, ms. */
+export const INTERP_DELAY_MS = 100;
+/** How much position history the server keeps for lag-compensated hits, sec. */
+export const LAG_COMP_MAX_REWIND_SEC = 1;
+
 // --- Bots (Phase 6) -------------------------------------------------------
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 

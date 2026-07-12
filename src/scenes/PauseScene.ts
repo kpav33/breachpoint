@@ -5,12 +5,19 @@ import { FACTION_CSS, FONT_DISPLAY, LINE, PANEL_ALPHA, PANEL_FILL, TEXT_1, TEXT_
 /**
  * Pause overlay launched over a paused Game+UI. Single-player, so the
  * simulation genuinely stops (Phaser scene pause halts update loops).
+ * Online the server keeps running — this is just a menu overlay there.
  */
 export class PauseScene extends Phaser.Scene {
   private settingsPanel!: SettingsPanel;
+  /** Which game scene launched us ('Game' or 'OnlineGame'). */
+  private gameKey = 'Game';
 
   constructor() {
     super('Pause');
+  }
+
+  init(data: { gameKey?: string }): void {
+    this.gameKey = data.gameKey ?? 'Game';
   }
 
   create(): void {
@@ -33,7 +40,7 @@ export class PauseScene extends Phaser.Scene {
     this.button(w / 2, h / 2 - 30, 'RESUME', () => this.resume());
     this.button(w / 2, h / 2 + 18, 'SETTINGS', () => this.settingsPanel.toggle());
     this.button(w / 2, h / 2 + 66, 'QUIT TO MENU', () => {
-      this.scene.stop('Game');
+      this.scene.stop(this.gameKey);
       this.scene.stop('UI');
       this.scene.stop();
       this.scene.start('Menu');
@@ -45,7 +52,7 @@ export class PauseScene extends Phaser.Scene {
   }
 
   private resume(): void {
-    this.scene.resume('Game');
+    this.scene.resume(this.gameKey);
     this.scene.resume('UI');
     this.scene.stop();
   }

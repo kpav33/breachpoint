@@ -1,0 +1,506 @@
+// Authoritative match room (Phase 9). Runs the exact same pure simulation
+// the single-player GameScene runs — core/simulation + match/MatchState, and
+// the shared bot brains from src/ai — on a fixed timestep. Humans feed
+// InputCommands; empty slots are filled with server-run bots. Broadcasts
+// full-state JSON snapshots at SNAPSHOT_RATE; clients predict/interpolate.
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Room } from 'colyseus';
+import type { Client } from 'colyseus';
+
+import { Buttons } from '../src/core/types.ts';
+import type { GameState, InputCommand, Team, Vec2 } from '../src/core/types.ts';
+import {
+  BOT_PROFILES,
+  FLASH_BEHIND_MULT,
+  FLASH_MAX_BLIND_SEC,
+  FLASH_RANGE_PX,
+  INPUT_QUEUE_MAX,
+  LAG_COMP_MAX_REWIND_SEC,
+  ROUNDS_TO_WIN,
+  SNAPSHOT_RATE,
+  START_MONEY,
+  TEAM_SIZE,
+  TICK_RATE,
+  WARMUP_TIME_SEC,
+} from '../src/core/config.ts';
+import { applyInput, createGameState, createPlayer, stepWorld } from '../src/core/simulation.ts';
+import { parseTiledMap } from '../src/core/map.ts';
+import type { MapData, TiledMap } from '../src/core/map.ts';
+import { canSee, smokeSegments } from '../src/core/vision.ts';
+import { createMatchState, movementFrozen, tryBuy, updateMatch } from '../src/match/MatchState.ts';
+import type { BuyItem, MatchState } from '../src/match/MatchState.ts';
+import { BotController } from '../src/ai/BotController.ts';
+import { assignBotObjectives, buildBotWorld } from '../src/ai/objectives.ts';
+import type { BotWorld } from '../src/ai/objectives.ts';
+import { MSG_BUY, MSG_INPUT, MSG_SNAPSHOT, MSG_WELCOME } from '../src/net/protocol.ts';
+import type { InputMessage, JoinOptions, Snapshot, Welcome } from '../src/net/protocol.ts';
+
+const FIXED_DT = 1 / TICK_RATE;
+/** Cap a hitching event-loop delta so the accumulator can't spiral. */
+const MAX_TICK_DELTA_MS = 250;
+const DEFAULT_MAP = 'de_yard';
+/** Each team is kept at this size; bots fill whatever humans don't. */
+const TEAM_TARGET = TEAM_SIZE;
+
+const MAPS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public/assets/maps');
+
+/** Buttons that fire on key-down; never repeat them when reusing a stale command. */
+const ONE_SHOT_BUTTONS =
+  Buttons.Reload |
+  Buttons.SelectMelee |
+  Buttons.SelectSecondary |
+  Buttons.SelectPrimary |
+  Buttons.NextWeapon |
+  Buttons.PrevWeapon |
+  Buttons.ThrowHE |
+  Buttons.ThrowFlash |
+  Buttons.ThrowSmoke;
+
+function loadMapData(mapKey: string): MapData {
+  const file = join(MAPS_DIR, `${mapKey}.json`);
+  const raw = JSON.parse(readFileSync(file, 'utf8')) as TiledMap;
+  return parseTiledMap(raw);
+}
+
+function idleCommand(): InputCommand {
+  return { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: 0 };
+}
+
+export class MatchRoom extends Room {
+  maxClients = TEAM_TARGET * 2;
+
+  private game!: GameState;
+  private match!: MatchState;
+  private map!: MapData;
+  private mapKey = DEFAULT_MAP;
+  private matchName = 'Match';
+  private names: Record<string, string> = { bomb: 'the bomb' };
+  /** Buffered inputs per player, applied one per tick (oldest first). */
+  private queues = new Map<string, InputMessage[]>();
+  /** Last applied command per player — reused (minus one-shots) when the buffer runs dry. */
+  private lastCmd = new Map<string, InputCommand>();
+  /** `cmd.tick` of the last real (non-repeated) input applied — the ack. */
+  private lastInputTick = new Map<string, number>();
+  /** Last viewTick each player reported (reused for repeated commands). */
+  private lastViewTick = new Map<string, number>();
+  /** Post-tick position history ring for lag-compensated hit resolution. */
+  private history: { tick: number; pos: Map<string, Vec2> }[] = [];
+
+  // Bots (server-run, filling empty slots) + their shared world data.
+  private bots: Record<string, BotController> = {};
+  private botWorld!: BotWorld;
+  private readonly botProfile = BOT_PROFILES.normal;
+  private botCounter = 0;
+  private tIds: string[] = [];
+  private ctIds: string[] = [];
+
+  private joinCounter = 0;
+  private accumulator = 0;
+  private snapshotAcc = 0;
+
+  onCreate(options: JoinOptions): void {
+    if (
+      typeof options.mapKey === 'string' &&
+      /^[a-z0-9_]+$/.test(options.mapKey) &&
+      existsSync(join(MAPS_DIR, `${options.mapKey}.json`))
+    ) {
+      this.mapKey = options.mapKey;
+    }
+    this.map = loadMapData(this.mapKey);
+    this.botWorld = buildBotWorld(this.map);
+    this.game = createGameState((Math.random() * 0xffffffff) >>> 0);
+    const roundsToWin =
+      typeof options.roundsToWin === 'number' && options.roundsToWin >= 1 && options.roundsToWin <= 30
+        ? Math.floor(options.roundsToWin)
+        : ROUNDS_TO_WIN;
+    this.match = createMatchState([], START_MONEY, roundsToWin);
+
+    if (typeof options.name === 'string' && options.name.trim()) {
+      this.matchName = options.name.trim().slice(0, 24);
+    }
+    if (options.private) this.setPrivate(true);
+
+    // Start full of bots; humans replace them as they join.
+    this.fillBots();
+    this.rebuildRoster();
+    this.publishMetadata();
+
+    this.onMessage(MSG_INPUT, (client, cmd: unknown) => this.onInput(client, cmd));
+    this.onMessage(MSG_BUY, (client, item: unknown) => this.onBuy(client, item));
+    this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
+    console.log(`room ${this.roomId} created — map ${this.mapKey}, first to ${roundsToWin}`);
+  }
+
+  onJoin(client: Client, options: JoinOptions): void {
+    const id = client.sessionId;
+    const team = this.smallerHumanTeam();
+    // Take a bot's slot so the team stays at target size.
+    if (this.teamSize(team) >= TEAM_TARGET) this.kickOneBot(team);
+
+    const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
+    const at = spawns[this.teamSize(team) % spawns.length];
+    this.game.players[id] = createPlayer(id, team, at.x, at.y);
+    this.match.stats[id] = { kills: 0, deaths: 0, money: START_MONEY, hasDefuseKit: false };
+    const name =
+      typeof options.name === 'string' && options.name.trim().length > 0
+        ? options.name.trim().slice(0, 16)
+        : `Player ${++this.joinCounter}`;
+    this.names[id] = name;
+    this.queues.set(id, []);
+
+    // Mid-round joiners sit out until the next round respawns everyone.
+    if (this.match.phase === 'live' || this.match.phase === 'round_end') {
+      this.game.players[id].hp = 0;
+    }
+
+    this.rebuildRoster();
+    this.publishMetadata();
+    const welcome: Welcome = { playerId: id, mapKey: this.mapKey };
+    client.send(MSG_WELCOME, welcome);
+    console.log(`${name} (${id}) joined as ${team}`);
+  }
+
+  onLeave(client: Client): void {
+    const id = client.sessionId;
+    const team = this.game.players[id]?.team;
+    this.removePlayer(id);
+    // Backfill with a bot so remaining humans still get a full match.
+    if (team && this.humanCount() > 0 && this.teamSize(team) < TEAM_TARGET) {
+      this.addBot(team);
+    }
+    this.rebuildRoster();
+    this.publishMetadata();
+    console.log(`${id} left`);
+  }
+
+  // --- Roster / bot management -------------------------------------------
+
+  /** Remove a player (human or bot) and all its bookkeeping; drops the bomb. */
+  private removePlayer(id: string): void {
+    const p = this.game.players[id];
+    if (!p) return;
+    if (this.match.bomb.carrierId === id) {
+      this.match.bomb.carrierId = null;
+      this.match.bomb.droppedAt = { x: p.pos.x, y: p.pos.y };
+      this.match.events.push({ type: 'bomb_dropped', pos: { ...this.match.bomb.droppedAt } });
+    }
+    if (this.match.bomb.plant?.playerId === id) this.match.bomb.plant = null;
+    if (this.match.bomb.defuse?.playerId === id) this.match.bomb.defuse = null;
+    delete this.game.players[id];
+    delete this.match.stats[id];
+    delete this.names[id];
+    delete this.bots[id];
+    this.queues.delete(id);
+    this.lastCmd.delete(id);
+    this.lastInputTick.delete(id);
+    this.lastViewTick.delete(id);
+  }
+
+  /** Bring both teams up to target size with fresh bots. */
+  private fillBots(): void {
+    for (const team of ['T', 'CT'] as const) {
+      while (this.teamSize(team) < TEAM_TARGET) this.addBot(team);
+    }
+  }
+
+  private addBot(team: Team): void {
+    const id = `bot${++this.botCounter}`;
+    const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
+    const at = spawns[this.teamSize(team) % spawns.length];
+    this.game.players[id] = createPlayer(id, team, at.x, at.y);
+    this.match.stats[id] = { kills: 0, deaths: 0, money: START_MONEY, hasDefuseKit: false };
+    this.names[id] = `Bot ${this.botCounter}`;
+    this.bots[id] = new BotController(
+      id,
+      [],
+      this.botProfile,
+      this.map,
+      this.botWorld.roamPoints,
+      (0x9e3779b9 ^ (this.botCounter * 40503)) >>> 0,
+    );
+    // A bot added mid-round sits out until the next round, like a human joiner.
+    if (this.match.phase === 'live' || this.match.phase === 'round_end') {
+      this.game.players[id].hp = 0;
+    }
+  }
+
+  private kickOneBot(team: Team): boolean {
+    for (const id of Object.keys(this.bots)) {
+      if (this.game.players[id]?.team === team) {
+        this.removePlayer(id);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Recompute team rosters and re-point every bot at its enemy list. */
+  private rebuildRoster(): void {
+    this.tIds = [];
+    this.ctIds = [];
+    for (const p of Object.values(this.game.players)) {
+      (p.team === 'T' ? this.tIds : this.ctIds).push(p.id);
+    }
+    for (const id of this.tIds) this.bots[id]?.setEnemies(this.ctIds);
+    for (const id of this.ctIds) this.bots[id]?.setEnemies(this.tIds);
+  }
+
+  private teamSize(team: Team): number {
+    let n = 0;
+    for (const p of Object.values(this.game.players)) if (p.team === team) n++;
+    return n;
+  }
+
+  private humanCount(): number {
+    let n = 0;
+    for (const id of Object.keys(this.game.players)) if (!this.bots[id]) n++;
+    return n;
+  }
+
+  /** The team with fewer humans (ties → T), so humans spread across sides. */
+  private smallerHumanTeam(): Team {
+    let t = 0;
+    let ct = 0;
+    for (const id of Object.keys(this.game.players)) {
+      if (this.bots[id]) continue;
+      if (this.game.players[id].team === 'T') t++;
+      else ct++;
+    }
+    return t <= ct ? 'T' : 'CT';
+  }
+
+  /** Room-list metadata (drives the client lobby). */
+  private publishMetadata(): void {
+    void this.setMetadata({
+      name: this.matchName,
+      mapKey: this.mapKey,
+      humans: this.humanCount(),
+      capacity: this.maxClients,
+      phase: this.match.phase,
+      round: this.match.round,
+    });
+  }
+
+  private onInput(client: Client, msg: unknown): void {
+    if (typeof msg !== 'object' || msg === null) return;
+    const m = msg as Record<string, unknown>;
+    if (typeof m.cmd !== 'object' || m.cmd === null || typeof m.viewTick !== 'number') return;
+    const c = m.cmd as Record<string, unknown>;
+    if (
+      typeof c.tick !== 'number' ||
+      typeof c.moveX !== 'number' ||
+      typeof c.moveY !== 'number' ||
+      typeof c.aimAngle !== 'number' ||
+      typeof c.buttons !== 'number' ||
+      !Number.isFinite(c.moveX) ||
+      !Number.isFinite(c.moveY) ||
+      !Number.isFinite(c.aimAngle) ||
+      !Number.isFinite(m.viewTick)
+    ) {
+      return;
+    }
+    const queue = this.queues.get(client.sessionId);
+    if (!queue) return;
+    // Never trust the client: clamp movement intent to unit range and coerce
+    // buttons to a uint32 bitmask. Actual speed/fire-rate come from the sim.
+    queue.push({
+      cmd: {
+        tick: Math.floor(c.tick),
+        moveX: Math.max(-1, Math.min(1, c.moveX)),
+        moveY: Math.max(-1, Math.min(1, c.moveY)),
+        aimAngle: c.aimAngle,
+        buttons: c.buttons >>> 0,
+      },
+      viewTick: Math.floor(m.viewTick),
+    });
+    // Bound the buffer so a flooding client can't grow it without limit.
+    while (queue.length > INPUT_QUEUE_MAX) queue.shift();
+  }
+
+  private onBuy(client: Client, item: unknown): void {
+    if (typeof item !== 'string') return;
+    // tryBuy validates phase/team/money/legality and rejects unknown items.
+    tryBuy(this.match, this.game, client.sessionId, item as BuyItem);
+  }
+
+  private tick(dtMs: number): void {
+    this.accumulator += Math.min(dtMs, MAX_TICK_DELTA_MS) / 1000;
+    while (this.accumulator >= FIXED_DT) {
+      this.step();
+      this.accumulator -= FIXED_DT;
+    }
+
+    this.snapshotAcc += Math.min(dtMs, MAX_TICK_DELTA_MS) / 1000;
+    if (this.snapshotAcc >= 1 / SNAPSHOT_RATE) {
+      this.snapshotAcc %= 1 / SNAPSHOT_RATE;
+      this.broadcastSnapshot();
+    }
+  }
+
+  /** One fixed simulation tick — mirrors GameScene's local loop exactly. */
+  private step(): void {
+    // Idle in warmup until a human is present on both (bot-filled) teams.
+    if (this.match.phase === 'warmup' && this.humanCount() === 0) {
+      this.match.phaseTimeLeft = WARMUP_TIME_SEC;
+    }
+
+    const botsActive = this.match.phase === 'live' || this.match.phase === 'round_end';
+    if (botsActive) {
+      assignBotObjectives(this.bots, this.match, this.botWorld.siteAnchors, this.tIds, this.ctIds);
+    }
+
+    const evStart = this.game.events.length;
+    const matchEvStart = this.match.events.length;
+    const frozen = movementFrozen(this.match);
+    const cmds: Record<string, InputCommand> = {};
+
+    for (const id of Object.keys(this.game.players)) {
+      const bot = this.bots[id];
+      let cmd: InputCommand;
+      let viewTick = this.game.tick; // bots resolve shots at the present
+
+      if (bot) {
+        cmd = botsActive ? bot.update(this.game, FIXED_DT) : idleCommand();
+      } else {
+        const queued = this.queues.get(id)?.shift();
+        if (queued) {
+          cmd = queued.cmd;
+          this.lastInputTick.set(id, queued.cmd.tick);
+          this.lastViewTick.set(id, queued.viewTick);
+        } else {
+          cmd = this.repeatCommand(id);
+        }
+        viewTick = this.lastViewTick.get(id) ?? this.game.tick;
+      }
+
+      this.lastCmd.set(id, cmd);
+      if (frozen) cmd = { ...cmd, moveX: 0, moveY: 0, buttons: 0 };
+      cmds[id] = cmd;
+
+      if (cmd.buttons & Buttons.Shoot) {
+        // Lag compensation: resolve shots against the world the shooter saw
+        // (their interpolated render tick), then restore positions.
+        this.withRewind(id, viewTick, () => applyInput(this.game, id, cmd, this.map, FIXED_DT));
+      } else {
+        applyInput(this.game, id, cmd, this.map, FIXED_DT);
+      }
+    }
+
+    stepWorld(this.game, this.map, FIXED_DT);
+    updateMatch(this.match, this.game, cmds, this.map, this.game.events.slice(evStart), FIXED_DT);
+    this.game.tick++;
+    this.recordHistory();
+
+    this.reactToEvents(this.game.events.slice(evStart), this.match.events.slice(matchEvStart));
+  }
+
+  /** Feed this tick's events to the bots (hearing, flashes) and round resets. */
+  private reactToEvents(
+    simEvents: GameState['events'],
+    matchEvents: MatchState['events'],
+  ): void {
+    for (const ev of simEvents) {
+      if (ev.type === 'shot') {
+        for (const bot of Object.values(this.bots)) bot.hear(this.game, ev);
+      } else if (ev.type === 'grenade_explode' && ev.gtype === 'flash') {
+        this.flashBots(ev.pos);
+      }
+    }
+    for (const ev of matchEvents) {
+      if (ev.type === 'round_start') {
+        for (const bot of Object.values(this.bots)) bot.reset();
+        this.autoBuyBots();
+        this.publishMetadata();
+      }
+    }
+  }
+
+  /** Blind bots that can see a flash pop (same rules as the client HUD). */
+  private flashBots(pos: Vec2): void {
+    const segments =
+      this.game.smokes.length > 0
+        ? [...this.map.segments, ...smokeSegments(this.game.smokes)]
+        : this.map.segments;
+    for (const [id, bot] of Object.entries(this.bots)) {
+      const p = this.game.players[id];
+      if (!p || p.hp <= 0) continue;
+      const dx = pos.x - p.pos.x;
+      const dy = pos.y - p.pos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > FLASH_RANGE_PX) continue;
+      if (!canSee({ pos: p.pos, angle: p.angle }, pos, segments, true)) continue;
+      const facing = Math.cos(Math.atan2(dy, dx) - p.angle) > 0 ? 1 : FLASH_BEHIND_MULT;
+      bot.flash(FLASH_MAX_BLIND_SEC * (1 - dist / FLASH_RANGE_PX) * facing);
+    }
+  }
+
+  /** Greedy bot spending at round start: best affordable primary, CTs a kit. */
+  private autoBuyBots(): void {
+    for (const id of Object.keys(this.bots)) {
+      if (!tryBuy(this.match, this.game, id, 'rifle')) tryBuy(this.match, this.game, id, 'smg');
+      if (this.game.players[id]?.team === 'CT') tryBuy(this.match, this.game, id, 'kit');
+    }
+  }
+
+  /** Snapshot everyone's post-tick position into the rewind ring. */
+  private recordHistory(): void {
+    const pos = new Map<string, Vec2>();
+    for (const p of Object.values(this.game.players)) {
+      if (p.hp > 0) pos.set(p.id, { x: p.pos.x, y: p.pos.y });
+    }
+    this.history.push({ tick: this.game.tick, pos });
+    const maxLen = Math.round(TICK_RATE * LAG_COMP_MAX_REWIND_SEC);
+    if (this.history.length > maxLen) this.history.shift();
+  }
+
+  /**
+   * Run `fn` with every *other* living player moved back to where they were
+   * at `viewTick` (clamped to the history window), restoring positions after.
+   * Only positions rewind — damage dealt inside persists.
+   */
+  private withRewind(shooterId: string, viewTick: number, fn: () => void): void {
+    const oldest = this.history[0]?.tick ?? this.game.tick;
+    const clamped = Math.max(oldest, Math.min(viewTick, this.game.tick));
+    const entry = this.history.find((h) => h.tick === clamped);
+    if (!entry) {
+      fn();
+      return;
+    }
+    const saved: { p: { pos: Vec2 }; x: number; y: number }[] = [];
+    for (const p of Object.values(this.game.players)) {
+      if (p.id === shooterId) continue;
+      const at = entry.pos.get(p.id);
+      if (!at) continue;
+      saved.push({ p, x: p.pos.x, y: p.pos.y });
+      p.pos.x = at.x;
+      p.pos.y = at.y;
+    }
+    fn();
+    for (const s of saved) {
+      s.p.pos.x = s.x;
+      s.p.pos.y = s.y;
+    }
+  }
+
+  /** Reuse the previous command (aim/movement hold), minus one-shot buttons. */
+  private repeatCommand(id: string): InputCommand {
+    const last = this.lastCmd.get(id);
+    if (!last) return idleCommand();
+    return { ...last, buttons: last.buttons & ~ONE_SHOT_BUTTONS };
+  }
+
+  /** Full state down the wire; event arrays are per-snapshot deltas. */
+  private broadcastSnapshot(): void {
+    const snapshot: Snapshot = {
+      game: this.game,
+      match: this.match,
+      names: this.names,
+      acks: Object.fromEntries(this.lastInputTick),
+    };
+    this.broadcast(MSG_SNAPSHOT, snapshot);
+    this.game.events = [];
+    this.match.events = [];
+  }
+}

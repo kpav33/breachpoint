@@ -2,7 +2,7 @@
 // Pure TypeScript on top of core/ — no Phaser. The scene calls updateMatch()
 // once per fixed tick (after the simulation step) and drains match.events;
 // the future server runs this file unchanged.
-import { Buttons } from '../core/types';
+import { Buttons } from '../core/types.ts';
 import type {
   GameState,
   GrenadeType,
@@ -11,10 +11,10 @@ import type {
   Team,
   Vec2,
   WeaponId,
-} from '../core/types';
-import type { MapData } from '../core/map';
-import { damagePlayer, nextRand, respawnPlayer } from '../core/simulation';
-import { defaultLoadout, givePrimary, makeSlot } from '../core/weapons';
+} from '../core/types.ts';
+import type { MapData } from '../core/map.ts';
+import { damagePlayer, nextRand, respawnPlayer } from '../core/simulation.ts';
+import { defaultLoadout, givePrimary, makeSlot } from '../core/weapons.ts';
 import {
   ARMOR_MAX,
   ARMOR_PRICE,
@@ -40,7 +40,7 @@ import {
   WARMUP_TIME_SEC,
   WEAPONS,
   WIN_REWARD,
-} from '../core/config';
+} from '../core/config.ts';
 
 export type MatchPhase = 'warmup' | 'buy' | 'live' | 'round_end' | 'match_end';
 
@@ -192,7 +192,12 @@ export function tryBuy(
     return true;
   }
 
-  const def = WEAPONS[item];
+  // Never trust the caller: reject anything that isn't a real weapon id.
+  // Must be an OWN property — `item in WEAPONS` / `WEAPONS[item]` would match
+  // inherited keys like "__proto__" or "toString" and buy a garbage weapon
+  // (whose undefined stats then poison the simulation with NaNs).
+  if (!Object.prototype.hasOwnProperty.call(WEAPONS, item)) return false;
+  const def = WEAPONS[item as WeaponId];
   if (def.slotIndex === 0) return false; // the knife is forever
   if (p.slots[def.slotIndex]?.weaponId === item) return false; // already own it
   if (stats.money < def.price) return false;

@@ -1,0 +1,20 @@
+# Fly.io config for the Breachpoint game server (Phase 9).
+# Deploy: `fly launch --no-deploy` (once, to create the app), then `fly deploy`.
+# A game server is stateful (rooms live in memory) — keep it to ONE instance
+# and do NOT auto-stop it to zero, or active matches would be killed.
+app = "breachpoint-server"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 2567
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

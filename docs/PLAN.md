@@ -195,27 +195,27 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 ### 9a. Server foundation
 
-- [ ] Monorepo restructure: `packages/core` (the existing `src/core/`), `packages/client`, `packages/server` — or simpler: server imports core via relative path/workspace
-- [ ] Colyseus room: fixed-tick loop (same `TICK_RATE`), runs `core/simulation` as the source of truth
-- [ ] Clients send `InputCommand`s (with client tick numbers); server buffers and applies them, broadcasts snapshots ~10–20×/s
-- [ ] Naive first pass: client renders raw snapshots (it will feel laggy — that's expected, it proves the pipe works)
+- [x] Monorepo restructure: went with the simpler option — `server/` imports `src/core` + `src/match` via relative paths, runs under `node --experimental-strip-types` (no build step)
+- [x] Colyseus room (`server/MatchRoom.ts`): fixed-tick loop (same `TICK_RATE`), runs `core/simulation` + `match/MatchState` as the source of truth
+- [x] Clients send `InputCommand`s (with client tick numbers); server buffers per-player queues and applies them (one per tick, one-shot buttons never repeated), broadcasts full-state snapshots at `SNAPSHOT_RATE` (15/s)
+- [x] Naive first pass: `OnlineGameScene` (subclass of GameScene — fog/effects/audio/HUD reused) renders raw snapshots (it will feel laggy — that's expected, it proves the pipe works)
 
 ### 9b. Netcode quality
 
-- [ ] **Client-side prediction:** client runs the same simulation locally for _its own_ player immediately on input
-- [ ] **Server reconciliation:** snapshots include last-processed input tick; client rewinds to server state and replays unacknowledged inputs. If you kept `core/` pure, this is ~50 lines
-- [ ] **Entity interpolation:** render _other_ players ~100ms in the past, lerping between the two surrounding snapshots
-- [ ] **Lag compensation for hits:** server keeps ~1s of position history; when a shot arrives, rewind targets to `clientTime − interpolationDelay` before raycasting
+- [x] **Client-side prediction:** client runs the same simulation locally for _its own_ player immediately on input (movement + aim only — firing/reload/switches stay server-authoritative so effects never double)
+- [x] **Server reconciliation:** snapshots include last-processed input tick (`acks`); client rewinds to server state and replays unacknowledged inputs (`OnlineGameScene.reconcile`)
+- [x] **Entity interpolation:** remote players + grenades render `INTERP_DELAY_MS` (100ms) in the past, lerping between the two surrounding snapshots
+- [x] **Lag compensation for hits:** server keeps `LAG_COMP_MAX_REWIND_SEC` (1s) of position history; each input carries the client's interpolated `viewTick` and shots resolve against targets rewound to it
 - [ ] Reference reading: Gabriel Gambetta "Fast-Paced Multiplayer" parts 1–4; Valve's Source Multiplayer Networking article
 
 ### 9c. Meta
 
-- [ ] Lobby / room list / join by code (Colyseus handles most of this)
-- [ ] Server-side validation: clamp move speeds, fire rates, buy legality (never trust the client — you already don't, since the server owns the sim)
-- [ ] Fill empty slots with bots (they already speak `InputCommand`)
-- [ ] Deploy: Node server on a VPS/Fly.io/Railway; static client on any CDN. WebSocket + HTTPS (wss)
+- [x] Lobby (`LobbyScene`): Quick Play (public matchmaking), Host Private (share code), Join by Code. A browsable live room list needs a Colyseus `LobbyRoom` — deferred to Phase 10 (see `docs/DEPLOY.md`).
+- [x] Server-side validation: input intent clamped ([-1,1] move, uint32 buttons), buy legality via `tryBuy` (phase/team/money) — hardened against prototype-key injection (`__proto__`/`toString`) with an own-property check. Speed/fire-rate can't be forged since the server owns the sim.
+- [x] Fill empty slots with bots: shared `BotController` + `assignBotObjectives` (moved to `src/ai/`, runs headless on the server). Teams kept at `TEAM_SIZE`; humans replace bots on join, bots backfill on leave.
+- [x] Deploy: `Dockerfile` (server-only, type-stripping, no build step), `fly.toml`, `docs/DEPLOY.md` (Fly/Railway/VPS + Cloudflare Pages, `VITE_SERVER_URL`, wss, CORS).
 
-**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping.
+**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping. _(Netcode + deploy path in place; real cross-network playtest still to do.)_
 
 ---
 

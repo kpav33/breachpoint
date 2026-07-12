@@ -1,11 +1,13 @@
 // Bot brain (Phase 6). Pure TypeScript on top of core/ — no Phaser. Each
 // tick it produces one InputCommand, exactly like a keyboard does; only
-// core/simulation.applyInput() ever moves the bot.
-import { Buttons } from '../../core/types';
-import type { GameState, InputCommand, PlayerState, SimEvent, Vec2 } from '../../core/types';
-import type { MapData } from '../../core/map';
-import { canSee, smokeSegments } from '../../core/vision';
-import { findPath, smoothPath } from '../../core/pathfinding';
+// core/simulation.applyInput() ever moves the bot. Lives in src/ai/ (not
+// src/game/) and uses .ts-extension imports + no parameter properties, so
+// the headless server can run it under `node --experimental-strip-types`.
+import { Buttons } from '../core/types.ts';
+import type { GameState, InputCommand, PlayerState, SimEvent, Vec2 } from '../core/types.ts';
+import type { MapData } from '../core/map.ts';
+import { canSee, smokeSegments } from '../core/vision.ts';
+import { findPath, smoothPath } from '../core/pathfinding.ts';
 import {
   BOT_AIM_JITTER_SEC,
   BOT_ENGAGE_RANGE_PX,
@@ -21,8 +23,8 @@ import {
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
   WEAPONS,
-} from '../../core/config';
-import type { BotProfile } from '../../core/config';
+} from '../core/config.ts';
+import type { BotProfile } from '../core/config.ts';
 
 export type BotState = 'patrol' | 'engage' | 'hunt' | 'retreat';
 
@@ -71,15 +73,29 @@ export class BotController {
 
   private rngState: number;
 
+  // Fields are declared explicitly (not TS parameter properties): the server
+  // runs this file under `node --experimental-strip-types`, which rejects
+  // parameter properties. Same rule as src/core/.
+  readonly id: string;
+  private enemyIds: string[];
+  private readonly profile: BotProfile;
+  private readonly map: MapData;
+  /** Points the bot roams between while it has nothing better to do. */
+  private readonly roamPoints: Vec2[];
+
   constructor(
-    readonly id: string,
-    private enemyIds: string[],
-    private readonly profile: BotProfile,
-    private readonly map: MapData,
-    /** Points the bot roams between while it has nothing better to do. */
-    private readonly roamPoints: Vec2[],
+    id: string,
+    enemyIds: string[],
+    profile: BotProfile,
+    map: MapData,
+    roamPoints: Vec2[],
     seed: number,
   ) {
+    this.id = id;
+    this.enemyIds = enemyIds;
+    this.profile = profile;
+    this.map = map;
+    this.roamPoints = roamPoints;
     this.rngState = seed | 0 || 1;
   }
 

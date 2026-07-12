@@ -62,8 +62,13 @@ export class MenuScene extends Phaser.Scene {
       });
     });
 
+    // Online (Phase 9): quick play, host private, or join by code.
+    this.button(w / 2, h * 0.48 + MODES.length * 62, 'ONLINE', 'play against other people', () => {
+      this.scene.start('Lobby');
+    });
+
     // Map select row.
-    const mapY = h * 0.48 + MODES.length * 62 + 8;
+    const mapY = h * 0.48 + (MODES.length + 1) * 62 + 8;
     this.add
       .text(w / 2 - 90, mapY, 'MAP', { fontFamily: FONT_DISPLAY, fontSize: '14px', fontStyle: '600', color: TEXT_3 })
       .setOrigin(1, 0.5);
