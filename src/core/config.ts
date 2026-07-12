@@ -1,6 +1,6 @@
 // Gameplay constants. All tunable simulation numbers live here — never
 // hardcode them at usage sites.
-import type { WeaponDef, WeaponId } from './types.ts';
+import type { GrenadeType, WeaponDef, WeaponId } from './types.ts';
 
 /** Fixed simulation tick rate in Hz. Rendering interpolates between ticks. */
 export const TICK_RATE = 60;
@@ -54,6 +54,38 @@ export const LOSS_BONUS_STEP = 500;
 export const LOSS_BONUS_MAX = 3400;
 export const MONEY_CAP = 16000;
 export const DEFUSE_KIT_PRICE = 400;
+export const ARMOR_PRICE = 650;
+export const ARMOR_MAX = 100;
+/** Fraction of incoming damage the armor soaks up (until it breaks). */
+export const ARMOR_ABSORPTION = 0.5;
+
+// Grenades (Phase 8) — projectile entities in the simulation.
+export interface GrenadeDef {
+  price: number;
+  /** Seconds from throw to detonation/activation. */
+  fuseSec: number;
+}
+export const GRENADES: Record<GrenadeType, GrenadeDef> = {
+  he: { price: 300, fuseSec: 1.6 },
+  flash: { price: 200, fuseSec: 1.2 },
+  smoke: { price: 300, fuseSec: 1.0 },
+};
+export const GRENADE_THROW_SPEED = 420;
+/** Exponential velocity decay coefficient, per second. */
+export const GRENADE_FRICTION = 1.6;
+/** Grenade body radius for wall bounces, px. */
+export const GRENADE_RADIUS_PX = 5;
+/** Seconds a throw locks the trigger (no same-instant shooting). */
+export const GRENADE_THROW_LOCKOUT_SEC = 0.5;
+export const HE_DAMAGE = 90;
+export const HE_RADIUS_PX = 280;
+/** Flash: full blind at the source, scaling to zero at this range. */
+export const FLASH_RANGE_PX = 700;
+export const FLASH_MAX_BLIND_SEC = 2.2;
+/** Blind factor when the flash pops behind the viewer. */
+export const FLASH_BEHIND_MULT = 0.35;
+export const SMOKE_RADIUS_PX = 88;
+export const SMOKE_DURATION_SEC = 12;
 
 // Bomb.
 export const BOMB_PLANT_TIME_SEC = 3;
@@ -123,9 +155,6 @@ export const BOT_PROFILES: Record<BotDifficulty, BotProfile> = {
   },
 };
 
-/** Difficulty used for spawned bots until a menu exposes the choice. */
-export const BOT_DIFFICULTY: BotDifficulty = 'normal';
-
 /** Enemy movement above this speed is audible to bots (walking is silent). */
 export const BOT_FOOTSTEP_MIN_SPEED = 140;
 /** A path waypoint counts as reached within this distance, px. */
@@ -188,6 +217,47 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     maxRangePx: 2400,
     price: 0,
     speedMult: 1.0,
+  },
+  deagle: {
+    id: 'deagle',
+    slotIndex: 1,
+    damage: 53,
+    rpm: 240,
+    magSize: 7,
+    reserveSize: 21,
+    reloadTime: 2.2,
+    spreadBaseDeg: 0.8,
+    spreadMoveDeg: 4.0,
+    bloomPerShotDeg: 2.0,
+    bloomMaxDeg: 6.0,
+    bloomDecayDegPerSec: 8,
+    falloffStartPx: 400,
+    falloffEndPx: 1400,
+    falloffMinMult: 0.65,
+    maxRangePx: 2400,
+    price: 700,
+    speedMult: 1.0,
+  },
+  shotgun: {
+    id: 'shotgun',
+    slotIndex: 2,
+    damage: 9,
+    rpm: 68,
+    magSize: 6,
+    reserveSize: 24,
+    reloadTime: 3.0,
+    spreadBaseDeg: 4.0,
+    spreadMoveDeg: 1.5,
+    bloomPerShotDeg: 0,
+    bloomMaxDeg: 0,
+    bloomDecayDegPerSec: 0,
+    falloffStartPx: 120,
+    falloffEndPx: 550,
+    falloffMinMult: 0.1,
+    maxRangePx: 900,
+    price: 1100,
+    speedMult: 0.96,
+    pellets: 8,
   },
   smg: {
     id: 'smg',

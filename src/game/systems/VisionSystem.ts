@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import type { Segment, Vec2 } from '../../core/types';
+import type { Segment, SmokeState, Vec2 } from '../../core/types';
 import { AWARENESS_RADIUS, FULL_CIRCLE_VISION } from '../../core/config';
-import { visibilityPolygon } from '../../core/vision';
+import { smokeSegments, visibilityPolygon } from '../../core/vision';
 import type { VisionResult } from '../../core/vision';
 import { WORLD } from '../theme';
 
@@ -30,6 +30,7 @@ export class VisionSystem {
   private lastOrigin: Vec2 = { x: NaN, y: NaN };
   private lastAim = NaN;
   private lastFullCircle: boolean | null = null;
+  private lastSmokeCount = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -44,24 +45,36 @@ export class VisionSystem {
   }
 
   /** Call once per frame with the interpolated render position/angle. */
-  update(origin: Vec2, aimAngle: number): void {
+  update(origin: Vec2, aimAngle: number, smokes: SmokeState[] = []): void {
     const moved =
       Math.abs(origin.x - this.lastOrigin.x) > MOVE_THRESHOLD ||
       Math.abs(origin.y - this.lastOrigin.y) > MOVE_THRESHOLD;
     const turned = Math.abs(Phaser.Math.Angle.Wrap(aimAngle - this.lastAim)) > ROTATE_THRESHOLD;
-    if (moved || turned || this.fullCircle !== this.lastFullCircle || Number.isNaN(this.lastAim)) {
-      this.cone = visibilityPolygon(origin, aimAngle, this.segments, {
+    // While smoke is up, recompute every frame — clouds appear/expire without
+    // the viewer moving. Cheap: smoke is rare and brief.
+    const smoky = smokes.length > 0 || this.lastSmokeCount > 0;
+    if (
+      moved ||
+      turned ||
+      smoky ||
+      this.fullCircle !== this.lastFullCircle ||
+      Number.isNaN(this.lastAim)
+    ) {
+      const segs =
+        smokes.length > 0 ? [...this.segments, ...smokeSegments(smokes)] : this.segments;
+      this.cone = visibilityPolygon(origin, aimAngle, segs, {
         fullCircle: this.fullCircle,
       });
       this.awareness = this.fullCircle
         ? { polygon: [], rays: [] }
-        : visibilityPolygon(origin, aimAngle, this.segments, {
+        : visibilityPolygon(origin, aimAngle, segs, {
             fullCircle: true,
             maxDist: AWARENESS_RADIUS,
           });
       this.lastOrigin = { x: origin.x, y: origin.y };
       this.lastAim = aimAngle;
       this.lastFullCircle = this.fullCircle;
+      this.lastSmokeCount = smokes.length;
       this.recomputes++;
     }
 

@@ -1,28 +1,47 @@
 import { Buttons } from './types.ts';
 import type {
   GameState,
+  GrenadeType,
   InputCommand,
   PlayerState,
+  ProjectileState,
   SimMap,
   Team,
   Vec2,
   WeaponId,
 } from './types.ts';
 import {
+  ARMOR_ABSORPTION,
   FRIENDLY_FIRE,
+  GRENADES,
+  GRENADE_FRICTION,
+  GRENADE_RADIUS_PX,
+  GRENADE_THROW_LOCKOUT_SEC,
+  GRENADE_THROW_SPEED,
+  HE_DAMAGE,
+  HE_RADIUS_PX,
   MOVE_SPEED,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
+  SMOKE_DURATION_SEC,
   WALK_SPEED,
   WEAPONS,
   WEAPON_SWITCH_TIME,
 } from './config.ts';
-import { resolveCircleGrid } from './collision.ts';
+import { isWall, resolveCircleGrid } from './collision.ts';
 import { rayCircleDist, raySegmentDist } from './raycast.ts';
 import { currentSpreadDeg, damageAtRange, defaultLoadout } from './weapons.ts';
 
 export function createGameState(rngSeed = 0x9e3779b9): GameState {
-  return { tick: 0, players: {}, projectiles: [], events: [], rngState: rngSeed };
+  return {
+    tick: 0,
+    players: {},
+    projectiles: [],
+    smokes: [],
+    nextProjectileId: 1,
+    events: [],
+    rngState: rngSeed,
+  };
 }
 
 export function createPlayer(
@@ -40,6 +59,8 @@ export function createPlayer(
     vel: { x: 0, y: 0 },
     angle: 0,
     hp: PLAYER_MAX_HP,
+    armor: 0,
+    grenades: [],
     slots,
     activeSlot: slots.length - 1,
     fireCooldown: 0,
@@ -77,7 +98,10 @@ export function damagePlayer(
 ): void {
   const p = state.players[playerId];
   if (!p || p.hp <= 0) return;
-  p.hp = Math.max(0, p.hp - damage);
+  // Armor soaks a fraction of the hit until its durability runs out.
+  const absorbed = Math.min(p.armor, Math.round(damage * ARMOR_ABSORPTION));
+  p.armor -= absorbed;
+  p.hp = Math.max(0, p.hp - (damage - absorbed));
   if (p.hp === 0) {
     state.events.push({ type: 'death', playerId: p.id, killerId });
   }
@@ -115,7 +139,87 @@ export function applyInput(
   move(p, cmd, map, dt);
   p.angle = cmd.aimAngle;
   if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
+  if (cmd.buttons & Buttons.ThrowHE) tryThrow(state, p, 'he');
+  if (cmd.buttons & Buttons.ThrowFlash) tryThrow(state, p, 'flash');
+  if (cmd.buttons & Buttons.ThrowSmoke) tryThrow(state, p, 'smoke');
   if (cmd.buttons & Buttons.Shoot) tryFire(state, p, map);
+}
+
+function tryThrow(state: GameState, p: PlayerState, type: GrenadeType): void {
+  if (p.fireCooldown > 0) return;
+  const idx = p.grenades.indexOf(type);
+  if (idx < 0) return;
+  p.grenades.splice(idx, 1);
+  const dir = { x: Math.cos(p.angle), y: Math.sin(p.angle) };
+  state.projectiles.push({
+    id: state.nextProjectileId++,
+    type,
+    ownerId: p.id,
+    pos: { x: p.pos.x + dir.x * (PLAYER_RADIUS + 4), y: p.pos.y + dir.y * (PLAYER_RADIUS + 4) },
+    vel: { x: dir.x * GRENADE_THROW_SPEED, y: dir.y * GRENADE_THROW_SPEED },
+    fuse: GRENADES[type].fuseSec,
+  });
+  p.fireCooldown = Math.max(p.fireCooldown, GRENADE_THROW_LOCKOUT_SEC);
+  state.events.push({ type: 'grenade_throw', playerId: p.id, gtype: type, from: { ...p.pos } });
+}
+
+/**
+ * Advance world entities (grenades in flight, smoke clouds) by one tick.
+ * Call once per tick after all players' applyInput.
+ */
+export function stepWorld(state: GameState, map: SimMap, dt: number): void {
+  const friction = Math.exp(-GRENADE_FRICTION * dt);
+  for (let i = state.projectiles.length - 1; i >= 0; i--) {
+    const g = state.projectiles[i];
+
+    // Axis-separated move with damped wall bounces.
+    const nx = g.pos.x + g.vel.x * dt;
+    if (grenadeHitsWall(map, nx, g.pos.y)) g.vel.x = -g.vel.x * 0.55;
+    else g.pos.x = nx;
+    const ny = g.pos.y + g.vel.y * dt;
+    if (grenadeHitsWall(map, g.pos.x, ny)) g.vel.y = -g.vel.y * 0.55;
+    else g.pos.y = ny;
+    g.vel.x *= friction;
+    g.vel.y *= friction;
+
+    g.fuse -= dt;
+    if (g.fuse > 0) continue;
+    state.projectiles.splice(i, 1);
+    if (g.type === 'he') {
+      explodeHE(state, g);
+    } else if (g.type === 'smoke') {
+      state.smokes.push({ id: g.id, pos: { ...g.pos }, timeLeft: SMOKE_DURATION_SEC });
+    }
+    state.events.push({ type: 'grenade_explode', gtype: g.type, pos: { ...g.pos }, ownerId: g.ownerId });
+  }
+
+  for (let i = state.smokes.length - 1; i >= 0; i--) {
+    state.smokes[i].timeLeft -= dt;
+    if (state.smokes[i].timeLeft <= 0) state.smokes.splice(i, 1);
+  }
+}
+
+function grenadeHitsWall(map: SimMap, x: number, y: number): boolean {
+  const ts = map.grid.tileSize;
+  const r = GRENADE_RADIUS_PX;
+  return (
+    isWall(map.grid, Math.floor((x - r) / ts), Math.floor(y / ts)) ||
+    isWall(map.grid, Math.floor((x + r) / ts), Math.floor(y / ts)) ||
+    isWall(map.grid, Math.floor(x / ts), Math.floor((y - r) / ts)) ||
+    isWall(map.grid, Math.floor(x / ts), Math.floor((y + r) / ts))
+  );
+}
+
+/** Radial damage with linear falloff. Hurts the thrower; FF rules apply to others. */
+function explodeHE(state: GameState, g: ProjectileState): void {
+  const owner = state.players[g.ownerId];
+  for (const q of Object.values(state.players)) {
+    if (q.hp <= 0) continue;
+    if (!FRIENDLY_FIRE && owner && q.team === owner.team && q.id !== g.ownerId) continue;
+    const dist = Math.hypot(q.pos.x - g.pos.x, q.pos.y - g.pos.y);
+    if (dist >= HE_RADIUS_PX) continue;
+    damagePlayer(state, q.id, Math.round(HE_DAMAGE * (1 - dist / HE_RADIUS_PX)), g.ownerId);
+  }
 }
 
 function selectWeapon(p: PlayerState, buttons: number): void {
@@ -188,8 +292,27 @@ function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
   const def = WEAPONS[slot.weaponId];
   if (def.magSize > 0 && slot.magAmmo <= 0) return;
 
-  // Spread is an angle offset, never a position offset.
+  // One trigger pull = one ammo, `pellets` independent rays (shotgun > 1).
   const spreadDeg = currentSpreadDeg(shooter);
+  for (let pellet = 0; pellet < (def.pellets ?? 1); pellet++) {
+    firePellet(state, shooter, def, map, spreadDeg);
+  }
+
+  if (def.magSize > 0) slot.magAmmo--;
+  // Add to the (possibly slightly negative) remainder for an exact average rate.
+  shooter.fireCooldown = Math.min(shooter.fireCooldown, 0) + 60 / def.rpm;
+  shooter.bloomDeg = Math.min(shooter.bloomDeg + def.bloomPerShotDeg, def.bloomMaxDeg);
+}
+
+/** One hitscan ray: spread roll, nearest wall/enemy hit, damage + event. */
+function firePellet(
+  state: GameState,
+  shooter: PlayerState,
+  def: (typeof WEAPONS)[WeaponId],
+  map: SimMap,
+  spreadDeg: number,
+): void {
+  // Spread is an angle offset, never a position offset.
   const angle = shooter.angle + (nextRand(state) * 2 - 1) * spreadDeg * DEG_TO_RAD;
   const dir = { x: Math.cos(angle), y: Math.sin(angle) };
 
@@ -230,9 +353,4 @@ function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
     hit,
     hitPlayerId: victim?.id,
   });
-
-  if (def.magSize > 0) slot.magAmmo--;
-  // Add to the (possibly slightly negative) remainder for an exact average rate.
-  shooter.fireCooldown = Math.min(shooter.fireCooldown, 0) + 60 / def.rpm;
-  shooter.bloomDeg = Math.min(shooter.bloomDeg + def.bloomPerShotDeg, def.bloomMaxDeg);
 }

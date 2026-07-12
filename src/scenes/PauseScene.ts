@@ -1,0 +1,67 @@
+import Phaser from 'phaser';
+import { SettingsPanel } from '../game/ui/SettingsPanel';
+import { FACTION_CSS, FONT_DISPLAY, LINE, PANEL_ALPHA, PANEL_FILL, TEXT_1, TEXT_2 } from '../game/theme';
+
+/**
+ * Pause overlay launched over a paused Game+UI. Single-player, so the
+ * simulation genuinely stops (Phaser scene pause halts update loops).
+ */
+export class PauseScene extends Phaser.Scene {
+  private settingsPanel!: SettingsPanel;
+
+  constructor() {
+    super('Pause');
+  }
+
+  create(): void {
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.55);
+    this.add
+      .rectangle(w / 2, h / 2, 300, 240, PANEL_FILL, PANEL_ALPHA)
+      .setStrokeStyle(1, LINE, 1);
+    this.add
+      .text(w / 2, h / 2 - 88, 'PAUSED', {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '24px',
+        fontStyle: '700',
+        color: TEXT_1,
+      })
+      .setOrigin(0.5);
+
+    this.button(w / 2, h / 2 - 30, 'RESUME', () => this.resume());
+    this.button(w / 2, h / 2 + 18, 'SETTINGS', () => this.settingsPanel.toggle());
+    this.button(w / 2, h / 2 + 66, 'QUIT TO MENU', () => {
+      this.scene.stop('Game');
+      this.scene.stop('UI');
+      this.scene.stop();
+      this.scene.start('Menu');
+    });
+
+    this.settingsPanel = new SettingsPanel(this, w / 2 + 330, h / 2);
+
+    this.input.keyboard!.on('keydown-ESC', () => this.resume());
+  }
+
+  private resume(): void {
+    this.scene.resume('Game');
+    this.scene.resume('UI');
+    this.scene.stop();
+  }
+
+  private button(x: number, y: number, label: string, onClick: () => void): void {
+    const t = this.add
+      .text(x, y, label, {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '18px',
+        fontStyle: '700',
+        color: TEXT_2,
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => t.setColor(FACTION_CSS.T))
+      .on('pointerout', () => t.setColor(TEXT_2))
+      .on('pointerdown', onClick);
+  }
+}

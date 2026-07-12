@@ -39,9 +39,11 @@ interface Casing {
 const KICK: Record<WeaponId, { shake: number; recoil: number }> = {
   knife: { shake: 0, recoil: 0 },
   pistol: { shake: 0.0012, recoil: 3 },
+  deagle: { shake: 0.0022, recoil: 6 },
   smg: { shake: 0.0014, recoil: 3 },
   rifle: { shake: 0.002, recoil: 5 },
   sniper: { shake: 0.005, recoil: 12 },
+  shotgun: { shake: 0.004, recoil: 9 },
 };
 
 const CASING_MAX = 64;
@@ -119,6 +121,13 @@ export class EffectsSystem {
   /** Shake for taking a hit (no weapon involved). */
   damageShake(): void {
     this.scene.cameras.main.shake(80, 0.003);
+  }
+
+  /** Explosion visual: bright core flash + expanding ring. */
+  explosion(at: Vec2, radius: number): void {
+    this.fx.push({ kind: 'flash', at, radius: 26, color: 0xffe9a0, age: 0, dur: 130 });
+    this.fx.push({ kind: 'ring', at, maxRadius: radius * 0.55, color: 0xffb020, age: 0, dur: 320 });
+    this.stampBulletHole(at); // scorch mark
   }
 
   private stampBulletHole(at: Vec2): void {

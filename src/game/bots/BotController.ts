@@ -4,7 +4,7 @@
 import { Buttons } from '../../core/types';
 import type { GameState, InputCommand, PlayerState, SimEvent, Vec2 } from '../../core/types';
 import type { MapData } from '../../core/map';
-import { canSee } from '../../core/vision';
+import { canSee, smokeSegments } from '../../core/vision';
 import { findPath, smoothPath } from '../../core/pathfinding';
 import {
   BOT_AIM_JITTER_SEC,
@@ -66,6 +66,8 @@ export class BotController {
   private objective: BotObjective | null = null;
   private onStation = false;
   private guardAngle = 0;
+  /** Seconds of flashbang blindness remaining. */
+  private blindLeft = 0;
 
   private rngState: number;
 
@@ -84,6 +86,11 @@ export class BotController {
   /** Set who this bot fights (rosters may not exist yet at construction). */
   setEnemies(ids: string[]): void {
     this.enemyIds = ids;
+  }
+
+  /** Flashbang hit: no vision (ears still work) for `seconds`. */
+  flash(seconds: number): void {
+    this.blindLeft = Math.max(this.blindLeft, seconds);
   }
 
   /** Replace the standing order (null = free roam). */
@@ -115,6 +122,7 @@ export class BotController {
     this.burstPause = 0;
     this.searchLeft = 0;
     this.onStation = false;
+    this.blindLeft = 0;
   }
 
   /** Gunshots set last-known-position when in earshot (walls don't block sound). */
@@ -169,6 +177,13 @@ export class BotController {
 
   /** Nearest visible enemy (bot vision = same cone/LOS rules as the player). */
   private perceive(gameState: GameState, me: PlayerState, dt: number): PlayerState | null {
+    this.blindLeft = Math.max(0, this.blindLeft - dt);
+    // Smoke blocks bot sight exactly like it blocks the player's fog.
+    const segments =
+      gameState.smokes.length > 0
+        ? [...this.map.segments, ...smokeSegments(gameState.smokes)]
+        : this.map.segments;
+
     let target: PlayerState | null = null;
     let bestDist = Infinity;
     for (const id of this.enemyIds) {
@@ -182,7 +197,8 @@ export class BotController {
         this.noticeEnemyAt(enemy.pos);
       }
 
-      if (dist < bestDist && canSee(me, enemy.pos, this.map.segments)) {
+      if (this.blindLeft > 0) continue; // flashed: ears only
+      if (dist < bestDist && canSee(me, enemy.pos, segments)) {
         target = enemy;
         bestDist = dist;
       }

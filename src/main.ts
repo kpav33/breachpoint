@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
+import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
+import { PauseScene } from './scenes/PauseScene';
 import { WORLD } from './game/theme';
 
 export const GAME_WIDTH = 1280;
@@ -19,5 +21,5 @@ new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, GameScene, UIScene],
+  scene: [BootScene, MenuScene, GameScene, UIScene, PauseScene],
 });

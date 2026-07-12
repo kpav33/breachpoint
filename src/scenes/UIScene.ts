@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import type { Team, WeaponId } from '../core/types';
-import type { MatchPhase } from '../match/MatchState';
+import type { MapGrid, Team, Vec2 } from '../core/types';
+import type { BuyItem, MatchPhase } from '../match/MatchState';
+import { isWall } from '../core/collision';
 import {
   BOMB,
   BOMB_CSS,
@@ -17,14 +18,28 @@ import {
   TEXT_1,
   TEXT_2,
   TEXT_3,
+  WORLD,
 } from '../game/theme';
 
 export interface BuyMenuItem {
-  item: WeaponId | 'kit';
+  item: BuyItem;
   label: string;
   price: number;
   /** Purchasable right now (money, team, not owned). */
   enabled: boolean;
+}
+
+export interface MinimapDot {
+  x: number;
+  y: number;
+  team: Team;
+  isMe: boolean;
+}
+
+export interface MinimapData {
+  dots: MinimapDot[];
+  planted: Vec2 | null;
+  dropped: Vec2 | null;
 }
 
 export interface ScoreboardRow {
@@ -48,6 +63,10 @@ export interface Banner {
 /** Everything the HUD shows, assembled by GameScene once per frame. */
 export interface HudData {
   hp: number;
+  armor: number;
+  /** Carried gear line, e.g. "HE · SMOKE · KIT" (empty = hidden). */
+  gear: string;
+  minimap: MinimapData;
   weaponLabel: string;
   ammoLabel: string;
   ammoWarn: boolean;
@@ -74,10 +93,13 @@ export interface HudData {
 
 export interface HudSource {
   getHud(): HudData;
-  buy(item: WeaponId | 'kit'): void;
+  buy(item: BuyItem): void;
+  /** Static collision grid for the minimap walls (read once). */
+  getGrid(): MapGrid;
 }
 
-const BUY_ROWS = 4;
+const BUY_ROWS = 10;
+const MINIMAP_W = 152;
 
 /**
  * Parallel HUD scene, styled per the Breachpoint visual system: Plex Mono
@@ -115,6 +137,11 @@ export class UIScene extends Phaser.Scene {
   private killFeed: { text: Phaser.GameObjects.Text; ttl: number }[] = [];
   private tabKey!: Phaser.Input.Keyboard.Key;
   private buyMenuShown: BuyMenuItem[] | null = null;
+  private armorText!: Phaser.GameObjects.Text;
+  private gearText!: Phaser.GameObjects.Text;
+  private minimapDots!: Phaser.GameObjects.Graphics;
+  private minimapScale = 1;
+  private minimapOrigin = { x: 14, y: 14 };
 
   constructor() {
     super('UI');
@@ -159,11 +186,15 @@ export class UIScene extends Phaser.Scene {
     this.scoreLineCT = text(w / 2 + 14, 44, this.displayStyle(17, FACTION_CSS.CT, '700'), 0);
     this.roundText = text(w / 2, 66, this.displayStyle(12, TEXT_3, '600'), 0.5);
 
-    // Bottom left: hp + money. Bottom right: weapon + ammo.
+    // Bottom left: hp + armor + money. Bottom right: gear + weapon + ammo.
     this.hpText = text(14, h - 36, this.dataStyle(22), 0, 1);
+    this.armorText = text(120, h - 36, this.dataStyle(15, TEXT_2), 0, 1);
     this.moneyText = text(14, h - 12, this.dataStyle(17, MONEY), 0, 1);
+    this.gearText = text(w - 14, h - 58, this.dataStyle(11, TEXT_3, '500'), 1, 1);
     this.weaponText = text(w - 14, h - 36, this.displayStyle(15, TEXT_2, '600'), 1, 1);
     this.ammoText = text(w - 14, h - 12, this.dataStyle(22), 1, 1);
+
+    this.createMinimap();
 
     // Bottom center: bomb hint, low and out of the aiming path.
     this.bombText = text(w / 2, h - 14, this.displayStyle(13, BOMB_CSS, '600'), 0.5, 1);
@@ -183,7 +214,9 @@ export class UIScene extends Phaser.Scene {
     const kb = this.input.keyboard!;
     kb.addCapture('TAB');
     this.tabKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
-    const buyKeys = ['ONE', 'TWO', 'THREE', 'FOUR'] as const;
+    const buyKeys = [
+      'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO',
+    ] as const;
     buyKeys.forEach((key, i) => {
       kb.on(`keydown-${key}`, () => {
         const menu = this.buyMenuShown;
@@ -192,11 +225,51 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
+  /** Walls drawn once from the collision grid; dots redrawn per frame. */
+  private createMinimap(): void {
+    const grid = this.source.getGrid();
+    const worldW = grid.width * grid.tileSize;
+    this.minimapScale = MINIMAP_W / worldW;
+    const mh = grid.height * grid.tileSize * this.minimapScale;
+    const { x, y } = this.minimapOrigin;
+
+    this.add
+      .rectangle(x - 4, y - 4, MINIMAP_W + 8, mh + 8, PANEL_FILL, PANEL_ALPHA)
+      .setOrigin(0)
+      .setStrokeStyle(1, LINE, 1)
+      .setDepth(9);
+    const walls = this.add.graphics().setDepth(9);
+    const ts = grid.tileSize * this.minimapScale;
+    walls.fillStyle(WORLD.wall, 0.9);
+    for (let ty = 0; ty < grid.height; ty++) {
+      for (let tx = 0; tx < grid.width; tx++) {
+        if (isWall(grid, tx, ty)) walls.fillRect(x + tx * ts, y + ty * ts, ts + 0.5, ts + 0.5);
+      }
+    }
+    this.minimapDots = this.add.graphics().setDepth(9);
+  }
+
+  private drawMinimap(d: HudData): void {
+    const g = this.minimapDots;
+    const { x, y } = this.minimapOrigin;
+    const s = this.minimapScale;
+    g.clear();
+    for (const dot of d.minimap.dots) {
+      g.fillStyle(dot.isMe ? 0xffffff : dot.team === 'T' ? FACTION.T : FACTION.CT, 1);
+      g.fillCircle(x + dot.x * s, y + dot.y * s, dot.isMe ? 3 : 2.4);
+    }
+    const bomb = d.minimap.planted ?? d.minimap.dropped;
+    if (bomb) {
+      g.fillStyle(BOMB, d.minimap.planted && Math.floor(this.time.now / 400) % 2 === 0 ? 0.4 : 1);
+      g.fillRect(x + bomb.x * s - 2.5, y + bomb.y * s - 2.5, 5, 5);
+    }
+  }
+
   private createBuyPanel(): void {
     const x = 30;
-    const y = this.scale.height * 0.3;
+    const y = this.scale.height * 0.22;
     const width = 250;
-    const rowH = 34;
+    const rowH = 28;
     const height = 54 + BUY_ROWS * rowH;
 
     const bg = this.panel(width, height).setPosition(width / 2, height / 2);
@@ -204,14 +277,16 @@ export class UIScene extends Phaser.Scene {
       .text(16, 14, 'BUY', this.displayStyle(15, TEXT_1, '700'))
       .setDepth(11);
     const hint = this.add
-      .text(width - 16, 17, 'PRESS 1–4', this.dataStyle(10, TEXT_3, '500'))
+      .text(width - 16, 17, 'PRESS 1–9, 0', this.dataStyle(10, TEXT_3, '500'))
       .setOrigin(1, 0)
       .setDepth(11);
 
     const rows: Phaser.GameObjects.GameObject[] = [];
     for (let i = 0; i < BUY_ROWS; i++) {
       const ry = 48 + i * rowH;
-      const key = this.add.text(16, ry, `${i + 1}`, this.dataStyle(14, FACTION_CSS.T)).setDepth(11);
+      const key = this.add
+        .text(16, ry, `${(i + 1) % 10}`, this.dataStyle(14, FACTION_CSS.T))
+        .setDepth(11);
       const name = this.add.text(42, ry, '', this.displayStyle(15, TEXT_1, '600')).setDepth(11);
       const price = this.add
         .text(width - 16, ry, '', this.dataStyle(14, MONEY))
@@ -297,7 +372,10 @@ export class UIScene extends Phaser.Scene {
       d.round > 0 ? `ROUND ${d.round} · ${d.aliveT}v${d.aliveCT} ALIVE` : '',
     );
     this.hpText.setText(`${d.hp} HP`);
+    this.armorText.setText(d.armor > 0 ? `${d.armor} AR` : '');
+    this.armorText.setX(14 + this.hpText.width + 14);
     this.moneyText.setText(`$${d.money}`);
+    this.gearText.setText(d.gear);
     this.weaponText.setText(d.weaponLabel);
     this.ammoText.setText(d.ammoLabel);
     this.ammoText.setColor(d.ammoWarn ? DANGER : TEXT_1);
@@ -321,6 +399,7 @@ export class UIScene extends Phaser.Scene {
     this.drawActionBar(d);
     this.drawBuyMenu(d);
     this.drawScoreboard(d);
+    this.drawMinimap(d);
 
     for (let i = this.killFeed.length - 1; i >= 0; i--) {
       const entry = this.killFeed[i];

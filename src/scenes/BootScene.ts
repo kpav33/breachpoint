@@ -23,6 +23,6 @@ export class BootScene extends Phaser.Scene {
     Promise.race([
       Promise.all(wanted.map((f) => document.fonts.load(f))),
       new Promise((resolve) => setTimeout(resolve, 2000)),
-    ]).then(() => this.scene.start('Game'));
+    ]).then(() => this.scene.start('Menu'));
   }
 }

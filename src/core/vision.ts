@@ -2,11 +2,12 @@
 // it for fog-of-war rendering, bots (Phase 6) and the server (Phase 9)
 // reuse canSee() for their own vision decisions.
 // Reference: Red Blob Games, "2D Visibility".
-import type { Segment, Vec2 } from './types.ts';
+import type { Segment, SmokeState, Vec2 } from './types.ts';
 import { castRay } from './raycast.ts';
 import {
   AWARENESS_RADIUS,
   PLAYER_RADIUS,
+  SMOKE_RADIUS_PX,
   VISION_CONE_DEG,
   VISION_RANGE,
 } from './config.ts';
@@ -20,6 +21,27 @@ const ARC_STEP = 6 * DEG_TO_RAD;
 /** Wrap to [-π, π]. */
 export function wrapAngle(a: number): number {
   return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+/**
+ * Smoke clouds as temporary wall segments (octagons) for the vision system.
+ * Smoke blocks sight only — bullets and movement pass through, so these
+ * segments are consumed by vision/canSee, never by the shot raycast.
+ */
+export function smokeSegments(smokes: SmokeState[]): Segment[] {
+  const segs: Segment[] = [];
+  for (const s of smokes) {
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2;
+      const a1 = ((i + 1) / n) * Math.PI * 2;
+      segs.push({
+        a: { x: s.pos.x + Math.cos(a0) * SMOKE_RADIUS_PX, y: s.pos.y + Math.sin(a0) * SMOKE_RADIUS_PX },
+        b: { x: s.pos.x + Math.cos(a1) * SMOKE_RADIUS_PX, y: s.pos.y + Math.sin(a1) * SMOKE_RADIUS_PX },
+      });
+    }
+  }
+  return segs;
 }
 
 function segDistSq(p: Vec2, seg: Segment): number {

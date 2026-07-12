@@ -16,6 +16,9 @@ export const Buttons = {
   SelectPrimary: 1 << 6,
   NextWeapon: 1 << 7,
   PrevWeapon: 1 << 8,
+  ThrowHE: 1 << 9,
+  ThrowFlash: 1 << 10,
+  ThrowSmoke: 1 << 11,
 } as const;
 
 /**
@@ -35,7 +38,14 @@ export interface InputCommand {
 
 export type Team = 'T' | 'CT';
 
-export type WeaponId = 'knife' | 'pistol' | 'smg' | 'rifle' | 'sniper';
+export type WeaponId =
+  | 'knife'
+  | 'pistol'
+  | 'deagle'
+  | 'smg'
+  | 'rifle'
+  | 'sniper'
+  | 'shotgun';
 
 /** Static weapon definition — the table itself lives in config.ts. */
 export interface WeaponDef {
@@ -64,6 +74,8 @@ export interface WeaponDef {
   maxRangePx: number;
   price: number;
   speedMult: number;
+  /** Rays per trigger pull (shotgun); damage is per pellet. Default 1. */
+  pellets?: number;
 }
 
 export interface WeaponSlot {
@@ -79,6 +91,8 @@ export interface PlayerState {
   vel: Vec2;
   angle: number;
   hp: number;
+  /** Kevlar 0..ARMOR_MAX — absorbs a fraction of damage until it breaks. */
+  armor: number;
   /** Ordered by WeaponDef.slotIndex: [melee, secondary, primary?]. */
   slots: WeaponSlot[];
   activeSlot: number;
@@ -88,13 +102,28 @@ export interface PlayerState {
   reloadRemaining: number;
   /** Accumulated spread bloom from sustained fire, degrees. */
   bloomDeg: number;
+  /** Grenade inventory — at most one of each type. */
+  grenades: GrenadeType[];
 }
 
-/** Placeholder — grenades become real projectile entities in Phase 8. */
+export type GrenadeType = 'he' | 'flash' | 'smoke';
+
+/** A thrown grenade in flight. */
 export interface ProjectileState {
   id: number;
+  type: GrenadeType;
+  ownerId: string;
   pos: Vec2;
   vel: Vec2;
+  /** Seconds until detonation/activation. */
+  fuse: number;
+}
+
+/** An active smoke cloud — blocks vision (not bullets or movement). */
+export interface SmokeState {
+  id: number;
+  pos: Vec2;
+  timeLeft: number;
 }
 
 /**
@@ -112,12 +141,17 @@ export type SimEvent =
       hitPlayerId?: string;
     }
   | { type: 'death'; playerId: string; killerId: string }
-  | { type: 'reload'; playerId: string; weaponId: WeaponId };
+  | { type: 'reload'; playerId: string; weaponId: WeaponId }
+  | { type: 'grenade_throw'; playerId: string; gtype: GrenadeType; from: Vec2 }
+  /** For smoke this marks activation — the cloud lives in state.smokes. */
+  | { type: 'grenade_explode'; gtype: GrenadeType; pos: Vec2; ownerId: string };
 
 export interface GameState {
   tick: number;
   players: Record<string, PlayerState>;
   projectiles: ProjectileState[];
+  smokes: SmokeState[];
+  nextProjectileId: number;
   events: SimEvent[];
   /** Deterministic RNG state (spread rolls) — replays/server stay in sync. */
   rngState: number;

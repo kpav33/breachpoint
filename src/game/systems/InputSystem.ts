@@ -8,7 +8,7 @@ import type { InputCommand, Vec2 } from '../../core/types';
  */
 export class InputSystem {
   private readonly keys: Record<
-    'w' | 'a' | 's' | 'd' | 'shift' | 'r' | 'e' | 'one' | 'two' | 'three',
+    'w' | 'a' | 's' | 'd' | 'shift' | 'r' | 'e' | 'g' | 'f' | 'c' | 'one' | 'two' | 'three',
     Phaser.Input.Keyboard.Key
   >;
   private wheelDelta = 0;
@@ -25,6 +25,9 @@ export class InputSystem {
       shift: kb.addKey(K.SHIFT),
       r: kb.addKey(K.R),
       e: kb.addKey(K.E),
+      g: kb.addKey(K.G),
+      f: kb.addKey(K.F),
+      c: kb.addKey(K.C),
       one: kb.addKey(K.ONE),
       two: kb.addKey(K.TWO),
       three: kb.addKey(K.THREE),
@@ -51,6 +54,9 @@ export class InputSystem {
     if (this.keys.shift.isDown) buttons |= Buttons.Walk;
     if (this.keys.e.isDown) buttons |= Buttons.Use; // held: plant/defuse
     if (JustDown(this.keys.r)) buttons |= Buttons.Reload;
+    if (JustDown(this.keys.g)) buttons |= Buttons.ThrowHE;
+    if (JustDown(this.keys.f)) buttons |= Buttons.ThrowFlash;
+    if (JustDown(this.keys.c)) buttons |= Buttons.ThrowSmoke;
     if (JustDown(this.keys.one)) buttons |= Buttons.SelectPrimary;
     if (JustDown(this.keys.two)) buttons |= Buttons.SelectSecondary;
     if (JustDown(this.keys.three)) buttons |= Buttons.SelectMelee;

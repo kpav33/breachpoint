@@ -72,6 +72,8 @@ writeWav('shot_pistol.wav', gunshot({ dur: 0.14, lpAlpha: 0.55, decay: 38, thump
 writeWav('shot_smg.wav', gunshot({ dur: 0.1, lpAlpha: 0.6, decay: 48, thumpHz: 160, thumpAmt: 0.2, seed: 22 }));
 writeWav('shot_rifle.wav', gunshot({ dur: 0.2, lpAlpha: 0.45, decay: 30, thumpHz: 95, thumpAmt: 0.4, seed: 33 }));
 writeWav('shot_sniper.wav', gunshot({ dur: 0.55, lpAlpha: 0.3, decay: 12, thumpHz: 60, thumpAmt: 0.6, seed: 44 }));
+writeWav('shot_deagle.wav', gunshot({ dur: 0.22, lpAlpha: 0.5, decay: 26, thumpHz: 110, thumpAmt: 0.45, seed: 66 }));
+writeWav('shot_shotgun.wav', gunshot({ dur: 0.3, lpAlpha: 0.35, decay: 18, thumpHz: 80, thumpAmt: 0.55, seed: 77 }));
 
 // Knife: short airy whoosh — bandpass-ish noise under a sine-shaped envelope.
 {
@@ -211,4 +213,55 @@ for (const [i, seed] of [77, 88, 99].entries()) {
       return x * Math.exp(-5 * t) * 0.9 + sub;
     }),
   );
+}
+
+// --- Grenade set (Phase 8) -------------------------------------------------
+
+// Throw: short soft whoosh.
+{
+  const n = secs(0.12);
+  const rand = rng(444);
+  let s = Array.from({ length: n }, () => rand() * 2 - 1);
+  s = lowpass(s, 0.35);
+  writeWav('grenade_throw.wav', s.map((x, i) => x * Math.sin((Math.PI * i) / n) * 0.4));
+}
+
+// HE explosion: like the bomb but smaller and shorter.
+{
+  const n = secs(0.7);
+  const rand = rng(555);
+  let noise = Array.from({ length: n }, () => rand() * 2 - 1);
+  noise = lowpass(noise, 0.16);
+  writeWav(
+    'he_explode.wav',
+    noise.map((x, i) => {
+      const t = i / RATE;
+      const sub = Math.sin(2 * Math.PI * 70 * t) * Math.exp(-8 * t) * 0.6;
+      return x * Math.exp(-8 * t) * 0.85 + sub;
+    }),
+  );
+}
+
+// Flashbang: sharp high crack + ringing tone tail.
+{
+  const n = secs(0.8);
+  const rand = rng(666);
+  writeWav(
+    'flash_pop.wav',
+    Array.from({ length: n }, (_, i) => {
+      const t = i / RATE;
+      const crack = (rand() * 2 - 1) * Math.exp(-60 * t) * 0.9;
+      const ring = Math.sin(2 * Math.PI * 2600 * t) * Math.exp(-3.5 * t) * 0.25;
+      return crack + ring;
+    }),
+  );
+}
+
+// Smoke pop: dull short hiss burst.
+{
+  const n = secs(0.5);
+  const rand = rng(777);
+  let s = Array.from({ length: n }, () => rand() * 2 - 1);
+  s = lowpass(s, 0.3);
+  writeWav('smoke_pop.wav', s.map((x, i) => x * Math.exp(-10 * (i / RATE)) * 0.5));
 }

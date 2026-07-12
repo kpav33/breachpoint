@@ -3,11 +3,21 @@
 // once per fixed tick (after the simulation step) and drains match.events;
 // the future server runs this file unchanged.
 import { Buttons } from '../core/types';
-import type { GameState, InputCommand, SimEvent, Team, Vec2, WeaponId } from '../core/types';
+import type {
+  GameState,
+  GrenadeType,
+  InputCommand,
+  SimEvent,
+  Team,
+  Vec2,
+  WeaponId,
+} from '../core/types';
 import type { MapData } from '../core/map';
 import { damagePlayer, nextRand, respawnPlayer } from '../core/simulation';
-import { defaultLoadout, givePrimary } from '../core/weapons';
+import { defaultLoadout, givePrimary, makeSlot } from '../core/weapons';
 import {
+  ARMOR_MAX,
+  ARMOR_PRICE,
   BOMB_DAMAGE,
   BOMB_DEFUSE_KIT_TIME_SEC,
   BOMB_DEFUSE_RANGE_PX,
@@ -18,6 +28,7 @@ import {
   BOMB_TIMER_SEC,
   BUY_TIME_SEC,
   DEFUSE_KIT_PRICE,
+  GRENADES,
   KILL_REWARD,
   LOSS_BONUS_BASE,
   LOSS_BONUS_MAX,
@@ -70,6 +81,8 @@ export interface MatchState {
   /** Seconds left in the current phase (the round timer during LIVE). */
   phaseTimeLeft: number;
   round: number;
+  /** First team to this many round wins takes the match. */
+  roundsToWin: number;
   score: Record<Team, number>;
   lossStreak: Record<Team, number>;
   stats: Record<string, PlayerMatchStats>;
@@ -93,7 +106,11 @@ function emptyBomb(): BombState {
   };
 }
 
-export function createMatchState(playerIds: string[], startMoney: number): MatchState {
+export function createMatchState(
+  playerIds: string[],
+  startMoney: number,
+  roundsToWin: number = ROUNDS_TO_WIN,
+): MatchState {
   const stats: Record<string, PlayerMatchStats> = {};
   for (const id of playerIds) {
     stats[id] = { kills: 0, deaths: 0, money: startMoney, hasDefuseKit: false };
@@ -102,6 +119,7 @@ export function createMatchState(playerIds: string[], startMoney: number): Match
     phase: 'warmup',
     phaseTimeLeft: WARMUP_TIME_SEC,
     round: 0,
+    roundsToWin,
     score: { T: 0, CT: 0 },
     lossStreak: { T: 0, CT: 0 },
     stats,
@@ -135,15 +153,18 @@ function addMoney(stats: PlayerMatchStats, amount: number): void {
   stats.money = Math.min(stats.money + amount, MONEY_CAP);
 }
 
+/** Everything money can buy. */
+export type BuyItem = WeaponId | GrenadeType | 'kit' | 'armor';
+
 /**
- * Buy a primary weapon or a defuse kit during BUY. Mutates loadout + money;
+ * Buy a weapon, armor or a defuse kit during BUY. Mutates loadout + money;
  * returns false (with no change) when the purchase is not allowed.
  */
 export function tryBuy(
   match: MatchState,
   game: GameState,
   playerId: string,
-  item: WeaponId | 'kit',
+  item: BuyItem,
 ): boolean {
   if (!canBuy(match)) return false;
   const p = game.players[playerId];
@@ -157,12 +178,33 @@ export function tryBuy(
     return true;
   }
 
+  if (item === 'armor') {
+    if (p.armor >= ARMOR_MAX || stats.money < ARMOR_PRICE) return false;
+    stats.money -= ARMOR_PRICE;
+    p.armor = ARMOR_MAX;
+    return true;
+  }
+
+  if (item === 'he' || item === 'flash' || item === 'smoke') {
+    if (p.grenades.includes(item) || stats.money < GRENADES[item].price) return false;
+    stats.money -= GRENADES[item].price;
+    p.grenades.push(item);
+    return true;
+  }
+
   const def = WEAPONS[item];
-  if (def.slotIndex !== 2) return false; // knife/pistol are never bought
-  if (p.slots[2]?.weaponId === item) return false; // already own it
+  if (def.slotIndex === 0) return false; // the knife is forever
+  if (p.slots[def.slotIndex]?.weaponId === item) return false; // already own it
   if (stats.money < def.price) return false;
   stats.money -= def.price;
-  givePrimary(p, item);
+  if (def.slotIndex === 2) {
+    givePrimary(p, item);
+  } else {
+    // Secondary upgrade (e.g. pistol → deagle): replace slot 1 and draw it.
+    p.slots[1] = makeSlot(item);
+    p.activeSlot = 1;
+    p.reloadRemaining = 0;
+  }
   return true;
 }
 
@@ -199,7 +241,8 @@ export function updateMatch(
     case 'round_end':
       match.phaseTimeLeft -= dt;
       if (match.phaseTimeLeft <= 0) {
-        const winner = match.score.T >= ROUNDS_TO_WIN ? 'T' : match.score.CT >= ROUNDS_TO_WIN ? 'CT' : null;
+        const winner =
+          match.score.T >= match.roundsToWin ? 'T' : match.score.CT >= match.roundsToWin ? 'CT' : null;
         if (winner) {
           match.phase = 'match_end';
           match.phaseTimeLeft = 0;
@@ -433,10 +476,12 @@ function startRound(match: MatchState, game: GameState, map: MapData): void {
   const spawnIdx: Record<Team, number> = { T: 0, CT: 0 };
   const ts: string[] = [];
   for (const p of Object.values(game.players)) {
-    // The fallen lose their gear (and kit); survivors keep everything.
+    // The fallen lose their gear (armor, kit, grenades); survivors keep it.
     if (p.hp <= 0) {
       p.slots = defaultLoadout();
       p.activeSlot = 1;
+      p.armor = 0;
+      p.grenades = [];
       const stats = match.stats[p.id];
       if (stats) stats.hasDefuseKit = false;
     }

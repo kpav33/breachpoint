@@ -11,7 +11,7 @@ shippable) or Freesound.org (verify each license).
 | File | Used for |
 |------|----------|
 | `shot_knife.wav` | knife swing |
-| `shot_pistol.wav` / `shot_smg.wav` / `shot_rifle.wav` / `shot_sniper.wav` | per-weapon gunshots |
+| `shot_pistol.wav` / `shot_deagle.wav` / `shot_smg.wav` / `shot_rifle.wav` / `shot_sniper.wav` / `shot_shotgun.wav` | per-weapon gunshots |
 | `reload.wav` | reload start (all weapons) |
 | `footstep1..3.wav` | footsteps, random variant (running only — walking is silent) |
 | `hit.wav` | hit confirm, local shooter only (UI, non-positional) |
@@ -21,6 +21,10 @@ shippable) or Freesound.org (verify each license).
 | `bomb_beep.wav` | planted-bomb countdown blip (positional, rate accelerates) |
 | `bomb_defused.wav` | successful defuse (positional) |
 | `bomb_explode.wav` | detonation (positional, map-wide range) |
+| `grenade_throw.wav` | any grenade leaving the hand (positional) |
+| `he_explode.wav` | HE grenade detonation (positional) |
+| `flash_pop.wav` | flashbang pop (positional) |
+| `smoke_pop.wav` | smoke activation (positional) |
 
 If a replacement is mono 22 kHz it drops in 1:1; other formats Phaser
 handles fine too (44.1 kHz, stereo, ogg — update the extension in

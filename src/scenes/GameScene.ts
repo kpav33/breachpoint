@@ -5,9 +5,17 @@ import {
   BOMB_DEFUSE_TIME_SEC,
   BOMB_PLANT_TIME_SEC,
   BOMB_TIMER_SEC,
-  BOT_DIFFICULTY,
   BOT_PROFILES,
+  FLASH_BEHIND_MULT,
+  FLASH_MAX_BLIND_SEC,
+  FLASH_RANGE_PX,
+  HE_RADIUS_PX,
+  ROUNDS_TO_WIN,
+  SMOKE_RADIUS_PX,
+  ARMOR_MAX,
+  ARMOR_PRICE,
   DEFUSE_KIT_PRICE,
+  GRENADES,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
   ROUND_TIME_SEC,
@@ -16,12 +24,12 @@ import {
   TICK_RATE,
   WEAPONS,
 } from '../core/config';
-import type { GameState, InputCommand, Team, Vec2, WeaponId } from '../core/types';
+import type { GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
 import type { MapData } from '../core/map';
-import { applyInput, createGameState, createPlayer } from '../core/simulation';
+import { applyInput, createGameState, createPlayer, stepWorld } from '../core/simulation';
 import { isWall } from '../core/collision';
 import { activeWeapon, currentSpreadDeg, givePrimary } from '../core/weapons';
-import { canSee } from '../core/vision';
+import { canSee, smokeSegments } from '../core/vision';
 import { walkablePointNear } from '../core/pathfinding';
 import {
   aliveCount,
@@ -31,7 +39,7 @@ import {
   tryBuy,
   updateMatch,
 } from '../match/MatchState';
-import type { MatchState } from '../match/MatchState';
+import type { BuyItem, MatchState } from '../match/MatchState';
 import { InputSystem } from '../game/systems/InputSystem';
 import { EffectsSystem } from '../game/systems/EffectsSystem';
 import { VisionSystem } from '../game/systems/VisionSystem';
@@ -40,16 +48,43 @@ import { PlayerView } from '../game/entities/PlayerView';
 import { BotController } from '../game/bots/BotController';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
-import type { Banner, BuyMenuItem, HudData, HudSource, ScoreboardRow } from './UIScene';
+import { loadSettings } from '../game/settings';
+import type { GameConfig } from './MenuScene';
+import type {
+  Banner,
+  BuyMenuItem,
+  HudData,
+  HudSource,
+  MinimapData,
+  MinimapDot,
+  ScoreboardRow,
+} from './UIScene';
 import { UIScene } from './UIScene';
-import { BOMB, BOMB_CSS, BOMB_PLANT, DANGER_NUM, FACTION, FACTION_CSS } from '../game/theme';
+import {
+  BOMB,
+  BOMB_CSS,
+  BOMB_PLANT,
+  DANGER_NUM,
+  FACTION,
+  FACTION_CSS,
+  HIT,
+  LINE,
+  ME_RING,
+  SMOKE_CLOUD,
+} from '../game/theme';
 
 const HUMAN_ID = 'p1';
-const BUY_ITEMS: { item: WeaponId | 'kit'; label: string }[] = [
+const BUY_ITEMS: { item: BuyItem; label: string }[] = [
+  { item: 'deagle', label: 'Deagle' },
+  { item: 'shotgun', label: 'Shotgun' },
   { item: 'smg', label: 'SMG' },
   { item: 'rifle', label: 'Rifle' },
   { item: 'sniper', label: 'Sniper' },
+  { item: 'armor', label: 'Armor' },
   { item: 'kit', label: 'Defuse kit' },
+  { item: 'he', label: 'HE grenade' },
+  { item: 'flash', label: 'Flashbang' },
+  { item: 'smoke', label: 'Smoke' },
 ];
 
 const FIXED_DT = 1 / TICK_RATE;
@@ -92,24 +127,56 @@ export class GameScene extends Phaser.Scene implements HudSource {
   private lastPlantPos: Vec2 = { x: 0, y: 0 };
   private beepAcc = 0;
   private followedId: string | null = null;
+  private smokeGfx!: Phaser.GameObjects.Graphics;
+  private flashRect!: Phaser.GameObjects.Rectangle;
+  /** Seconds of local flashbang whiteout remaining. */
+  private blindLeft = 0;
+  /** Wall + active smoke segments for this frame's sight checks. */
+  private frameSegments: Segment[] = [];
 
   private accumulator = 0;
   private prev: Record<string, RenderSnapshot> = {};
   /** F6: freeze bot brains (they stand still) for inspecting behavior. */
   private botsFrozen = false;
 
+  private config: GameConfig = { roundsToWin: ROUNDS_TO_WIN, mapKey: MAP_KEY };
+
   constructor() {
     super('Game');
   }
 
+  init(data: Partial<GameConfig>): void {
+    this.config = {
+      roundsToWin: data.roundsToWin ?? ROUNDS_TO_WIN,
+      mapKey: data.mapKey ?? MAP_KEY,
+    };
+    // Scenes are reused across matches — reset per-match state.
+    this.bots = {};
+    this.tIds = [];
+    this.ctIds = [];
+    this.prev = {};
+    this.names = { bomb: 'the bomb' };
+    this.banner = null;
+    this.damageIndicators = [];
+    this.accumulator = 0;
+    this.followedId = null;
+    this.botsFrozen = false;
+    this.blindLeft = 0;
+    this.frameSegments = [];
+  }
+
   create(): void {
-    this.map = loadMap(this).data;
+    this.map = loadMap(this, this.config.mapKey).data;
     const { grid } = this.map;
 
     this.state = createGameState();
     this.views = {};
     this.buildRoster();
-    this.match = createMatchState(Object.keys(this.state.players), START_MONEY);
+    this.match = createMatchState(
+      Object.keys(this.state.players),
+      START_MONEY,
+      this.config.roundsToWin,
+    );
 
     this.siteAnchors = this.map.bombsites.map((s) => {
       const center = { x: s.x + s.width / 2, y: s.y + s.height / 2 };
@@ -121,7 +188,15 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.vision = new VisionSystem(this, this.map.segments);
     this.audio = new AudioSystem(this);
     this.bombGfx = this.add.graphics().setDepth(4);
+    // Smoke clouds cover players (5) but sit under the fog layer (50).
+    this.smokeGfx = this.add.graphics().setDepth(40);
     this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
+    this.flashRect = this.add
+      .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0xffffff)
+      .setScrollFactor(0)
+      .setDepth(650)
+      .setAlpha(0);
+    this.blindLeft = 0;
 
     this.cameras.main.setBounds(0, 0, grid.width * grid.tileSize, grid.height * grid.tileSize);
     this.follow(HUMAN_ID);
@@ -140,7 +215,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
       ...this.map.spawnsT,
       ...this.map.spawnsCT,
     ];
-    const profile = BOT_PROFILES[BOT_DIFFICULTY];
+    const profile = BOT_PROFILES[loadSettings().botDifficulty];
 
     const add = (id: string, team: Team, name: string, isBot: boolean): void => {
       const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
@@ -177,6 +252,11 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
     kb.on('keydown-F5', () => (this.vision.fullCircle = !this.vision.fullCircle));
     kb.on('keydown-F6', () => (this.botsFrozen = !this.botsFrozen));
+    kb.on('keydown-ESC', () => {
+      this.scene.pause();
+      this.scene.pause('UI');
+      this.scene.launch('Pause');
+    });
   }
 
   update(_time: number, delta: number): void {
@@ -205,6 +285,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
         }
       }
 
+      stepWorld(this.state, this.map, FIXED_DT);
       updateMatch(
         this.match,
         this.state,
@@ -217,11 +298,18 @@ export class GameScene extends Phaser.Scene implements HudSource {
       this.accumulator -= FIXED_DT;
     }
 
+    this.frameSegments =
+      this.state.smokes.length > 0
+        ? [...this.map.segments, ...smokeSegments(this.state.smokes)]
+        : this.map.segments;
+
     this.assignObjectives();
     this.drainSimEvents();
     this.drainMatchEvents();
     this.updateBanner(delta);
     this.updateBombAudioVisual(delta);
+    this.drawGrenades();
+    this.updateFlashOverlay(delta);
     this.effects.update(delta);
     this.updateDamageIndicators(delta);
 
@@ -230,7 +318,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     const rendered = this.renderPlayers(subjectId);
     this.audio.setListener(rendered);
     this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
-    this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle);
+    this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle, this.state.smokes);
     this.cullEnemies(subjectId);
 
     this.updateDebug(player);
@@ -254,8 +342,16 @@ export class GameScene extends Phaser.Scene implements HudSource {
       action = { label: 'DEFUSING', frac: bomb.defuse.progress / needed };
     }
 
+    const gear = [
+      ...me.grenades.map((g) => g.toUpperCase()),
+      ...(stats.hasDefuseKit ? ['KIT'] : []),
+    ].join(' · ');
+
     return {
       hp: me.hp,
+      armor: me.armor,
+      gear,
+      minimap: this.buildMinimap(subjectId),
       weaponLabel: def.id.toUpperCase(),
       ammoLabel:
         me.reloadRemaining > 0
@@ -283,8 +379,33 @@ export class GameScene extends Phaser.Scene implements HudSource {
     };
   }
 
-  buy(item: WeaponId | 'kit'): void {
+  buy(item: BuyItem): void {
     tryBuy(this.match, this.state, HUMAN_ID, item);
+  }
+
+  getGrid(): MapGrid {
+    return this.map.grid;
+  }
+
+  /** Teammates always; enemies only while their world view is visible. */
+  private buildMinimap(subjectId: string): MinimapData {
+    const subject = this.state.players[subjectId];
+    const dots: MinimapDot[] = [];
+    for (const p of Object.values(this.state.players)) {
+      if (p.hp <= 0) continue;
+      if (
+        p.team === 'CT' &&
+        !canSee(subject, p.pos, this.frameSegments, this.vision.fullCircle)
+      ) {
+        continue;
+      }
+      dots.push({ x: p.pos.x, y: p.pos.y, team: p.team, isMe: p.id === HUMAN_ID });
+    }
+    return {
+      dots,
+      planted: this.match.bomb.plantedAt,
+      dropped: this.match.bomb.droppedAt,
+    };
   }
 
   /** Default banner when no event banner is live. */
@@ -307,13 +428,22 @@ export class GameScene extends Phaser.Scene implements HudSource {
     const me = this.state.players[HUMAN_ID];
     const stats = this.match.stats[HUMAN_ID];
     return BUY_ITEMS.map(({ item, label }) => {
-      const price = item === 'kit' ? DEFUSE_KIT_PRICE : WEAPONS[item].price;
-      const enabled =
-        stats.money >= price &&
-        (item === 'kit'
-          ? me.team === 'CT' && !stats.hasDefuseKit
-          : me.slots[2]?.weaponId !== item);
-      return { item, label, price, enabled };
+      let price: number;
+      let owned: boolean;
+      if (item === 'kit') {
+        price = DEFUSE_KIT_PRICE;
+        owned = stats.hasDefuseKit || me.team !== 'CT';
+      } else if (item === 'armor') {
+        price = ARMOR_PRICE;
+        owned = me.armor >= ARMOR_MAX;
+      } else if (item === 'he' || item === 'flash' || item === 'smoke') {
+        price = GRENADES[item].price;
+        owned = me.grenades.includes(item);
+      } else {
+        price = WEAPONS[item].price;
+        owned = me.slots[WEAPONS[item].slotIndex]?.weaponId === item;
+      }
+      return { item, label, price, enabled: !owned && stats.money >= price };
     });
   }
 
@@ -390,6 +520,10 @@ export class GameScene extends Phaser.Scene implements HudSource {
         }
       } else if (ev.type === 'reload') {
         this.audio.play('reload', this.state.players[ev.playerId].pos);
+      } else if (ev.type === 'grenade_throw') {
+        this.audio.play('grenade_throw', ev.from);
+      } else if (ev.type === 'grenade_explode') {
+        this.handleGrenadeExplode(ev.gtype, ev.pos);
       } else if (ev.type === 'death') {
         const victim = this.state.players[ev.playerId];
         this.effects.handle(ev, HUMAN_ID, victim.pos);
@@ -399,6 +533,73 @@ export class GameScene extends Phaser.Scene implements HudSource {
       }
     }
     this.state.events.length = 0;
+  }
+
+  private handleGrenadeExplode(gtype: 'he' | 'flash' | 'smoke', pos: Vec2): void {
+    if (gtype === 'he') {
+      this.audio.play('he_explode', pos);
+      this.effects.explosion(pos, HE_RADIUS_PX);
+      const me = this.state.players[HUMAN_ID];
+      if (me.hp > 0 && Math.hypot(me.pos.x - pos.x, me.pos.y - pos.y) < HE_RADIUS_PX * 1.5) {
+        this.effects.damageShake();
+      }
+    } else if (gtype === 'smoke') {
+      this.audio.play('smoke_pop', pos);
+    } else {
+      this.audio.play('flash_pop', pos);
+      this.applyFlash(pos);
+    }
+  }
+
+  /** Flash blinds whoever can see it — full when facing it, reduced behind. */
+  private applyFlash(pos: Vec2): void {
+    const blindFor = (viewer: { pos: Vec2; angle: number }): number => {
+      const dx = pos.x - viewer.pos.x;
+      const dy = pos.y - viewer.pos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > FLASH_RANGE_PX) return 0;
+      // Occlusion (walls + smoke) uses the same rules as all sight checks —
+      // but not the view cone: a flash at your back still blinds you.
+      if (!canSee({ pos: viewer.pos, angle: viewer.angle }, pos, this.frameSegments, true)) return 0;
+      const facing = Math.cos(Math.atan2(dy, dx) - viewer.angle) > 0 ? 1 : FLASH_BEHIND_MULT;
+      return FLASH_MAX_BLIND_SEC * (1 - dist / FLASH_RANGE_PX) * facing;
+    };
+
+    const me = this.state.players[HUMAN_ID];
+    if (me.hp > 0) this.blindLeft = Math.max(this.blindLeft, blindFor(me));
+    for (const [id, bot] of Object.entries(this.bots)) {
+      const p = this.state.players[id];
+      if (p.hp > 0) bot.flash(blindFor(p));
+    }
+  }
+
+  private updateFlashOverlay(delta: number): void {
+    this.blindLeft = Math.max(0, this.blindLeft - delta / 1000);
+    this.flashRect.setAlpha(Math.min(1, this.blindLeft / 0.9));
+  }
+
+  /** Grenades in flight (bombGfx layer) + smoke clouds (above players). */
+  private drawGrenades(): void {
+    const g = this.bombGfx;
+    for (const p of this.state.projectiles) {
+      const band = p.type === 'he' ? HIT : p.type === 'flash' ? ME_RING : LINE;
+      g.fillStyle(SMOKE_CLOUD, 1);
+      g.fillCircle(p.pos.x, p.pos.y, 4);
+      g.lineStyle(2, band, 1);
+      g.strokeCircle(p.pos.x, p.pos.y, 4);
+    }
+
+    const s = this.smokeGfx;
+    s.clear();
+    for (const cloud of this.state.smokes) {
+      // Fade out over the last 1.5s; light wobble so it reads as volume.
+      const fade = Math.min(1, cloud.timeLeft / 1.5);
+      const wobble = 1 + 0.03 * Math.sin(this.time.now / 300 + cloud.id);
+      s.fillStyle(SMOKE_CLOUD, 0.94 * fade);
+      s.fillCircle(cloud.pos.x, cloud.pos.y, SMOKE_RADIUS_PX * wobble);
+      s.lineStyle(2, LINE, 0.5 * fade);
+      s.strokeCircle(cloud.pos.x, cloud.pos.y, SMOKE_RADIUS_PX * wobble);
+    }
   }
 
   private drainMatchEvents(): void {
@@ -431,7 +632,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
               eyebrow: `FINAL · T ${this.match.score.T} : ${this.match.score.CT} CT`,
               eyebrowColor: FACTION_CSS[ev.winner],
               headline: `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`,
-              sub: 'refresh to play again',
+              sub: 'ESC — quit to menu',
             },
             Number.POSITIVE_INFINITY,
           );
@@ -596,7 +797,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
       const enemy = this.state.players[id];
       if (enemy.hp <= 0) continue; // death handler hid the view
       this.views[id].setVisible(
-        canSee(subject, enemy.pos, this.map.segments, this.vision.fullCircle),
+        canSee(subject, enemy.pos, this.frameSegments, this.vision.fullCircle),
       );
     }
   }
@@ -643,7 +844,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   // --- Debug ----------------------------------------------------------------
 
   private updateDebug(player: (typeof this.state.players)[string]): void {
-    this.debug.setLine('map', MAP_KEY);
+    this.debug.setLine('map', this.config.mapKey);
     this.debug.setLine('tick', String(this.state.tick));
     this.debug.setLine('phase', `${this.match.phase} ${this.match.phaseTimeLeft.toFixed(1)}s`);
     this.debug.setLine(

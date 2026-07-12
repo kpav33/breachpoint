@@ -4,6 +4,8 @@ import type { MapData, TiledMap } from '../../core/map';
 import { WORLD } from '../theme';
 
 export const MAP_KEY = 'de_yard';
+/** Playable maps — every key has `assets/maps/<key>.json` (same tileset). */
+export const MAPS = ['de_yard', 'de_split'];
 export const TILESET_KEY = 'tiles';
 
 export interface LoadedMap {
@@ -14,7 +16,9 @@ export interface LoadedMap {
 /** Queue map assets — call from BootScene.preload(). */
 export function preloadMapAssets(scene: Phaser.Scene): void {
   scene.load.image(TILESET_KEY, 'assets/maps/tiles.png');
-  scene.load.tilemapTiledJSON(MAP_KEY, 'assets/maps/de_yard.json');
+  for (const key of MAPS) {
+    scene.load.tilemapTiledJSON(key, `assets/maps/${key}.json`);
+  }
 }
 
 /**

@@ -18,7 +18,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 
 - `src/core/` — pure simulation: types, config, simulation, collision, raycast, weapons
 - `src/game/` — Phaser-side: entities, systems (input, vision, effects, audio), map loading, bot AI
-- `src/scenes/` — Boot, Menu, Game (thin orchestrator), UI (HUD, parallel scene)
+- `src/scenes/` — Boot, Menu, Game (thin orchestrator), UI (HUD, parallel scene), Pause (overlay)
 - `src/match/` — rounds, economy, bomb logic, game modes
 - `public/assets/` — sprites, Tiled map JSON, tilesets, audio
 
@@ -27,7 +27,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 - `npm run dev` — Vite dev server
 - `npm run build` — production build
 - `npm run lint` — ESLint (includes the core/ import restriction)
-- `node tools/generate-map.mjs` — regenerate `public/assets/maps/de_yard.json` + `tiles.png` from the layout defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts)
+- `node tools/generate-map.mjs` — regenerate all maps (`de_yard.json`, `de_split.json`) + `tiles.png` from the layouts defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts; new maps also go in `MAPS` in `MapLoader.ts`)
 - `node tools/generate-audio.mjs` — regenerate the placeholder sound set in `public/assets/audio/` (synthesized WAVs; swap files for real assets without code changes)
 <!-- Update this section as commands are added (tests, typecheck, etc.) -->
 
