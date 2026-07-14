@@ -31,13 +31,13 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Empty Phaser scene renders, tooling works.
 
-- [ ] `npm create vite@latest` (vanilla-ts template), install `phaser`
-- [ ] Folder skeleton per the agreed structure (`core/`, `game/`, `scenes/`, `match/`)
-- [ ] `main.ts` with Phaser config: `Phaser.AUTO`, pixelArt: true if going pixel style, scale mode `FIT`
-- [ ] BootScene → GameScene flow with a placeholder rectangle "player"
-- [ ] ESLint rule or convention check: nothing in `core/` may import from `phaser` or `game/`
-- [ ] Git repo, `.gitignore`
-- [ ] Debug overlay scaffold (toggle with backtick): starts as an FPS/tick counter. **Extend it every phase** — collision grid + player circle (Ph1), wall segments (Ph2), raycasts + spread cone (Ph3), visibility polygon outline + raw rays (Ph4), bot state labels + A\* paths + last-known-position markers (Ph6). The three hardest systems to debug (vision, raycasts, bot AI) are all invisible without this
+- [x] `npm create vite@latest` (vanilla-ts template), install `phaser`
+- [x] Folder skeleton per the agreed structure (`core/`, `game/`, `scenes/`, `match/`)
+- [x] `main.ts` with Phaser config: `Phaser.AUTO`, pixelArt: true if going pixel style, scale mode `FIT`
+- [x] BootScene → GameScene flow with a placeholder rectangle "player"
+- [x] ESLint rule or convention check: nothing in `core/` may import from `phaser` or `game/`
+- [x] Git repo, `.gitignore`
+- [x] Debug overlay scaffold (toggle with backtick): starts as an FPS/tick counter. **Extend it every phase** — collision grid + player circle (Ph1), wall segments (Ph2), raycasts + spread cone (Ph3), visibility polygon outline + raw rays (Ph4), bot state labels + A\* paths + last-known-position markers (Ph6). The three hardest systems to debug (vision, raycasts, bot AI) are all invisible without this
 
 **Done when:** `npm run dev` shows a scene with a movable-later rectangle at 60fps.
 
@@ -47,13 +47,13 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** A player that moves and collides, driven entirely by `core/`.
 
-- [ ] `core/types.ts`: `Vec2`, `PlayerState` (pos, vel, angle, hp, weaponId, ammo…), `InputCommand`, `GameState` (players, projectiles, tick)
-- [ ] `core/config.ts`: `TICK_RATE`, `MOVE_SPEED`, `PLAYER_RADIUS`, walk-vs-run speeds
-- [ ] `core/simulation.ts`: `applyInput(state, cmd, dt)` — normalize diagonal movement, apply velocity, resolve collision
-- [ ] `core/collision.ts`: circle-vs-tile-grid resolution (check the 4–9 tiles around the player, push out along shortest axis). Slide along walls, don't stick
-- [ ] Fixed-timestep loop in GameScene: accumulate `delta`, step simulation at `1/TICK_RATE`, render interpolated position (`lerp(prevPos, currPos, alpha)`)
-- [ ] `InputSystem.ts`: WASD → move vector, mouse → `aimAngle` (via `Phaser.Math.Angle.Between` from player screen pos to pointer), produce one `InputCommand` per tick
-- [ ] Player sprite rotates to `aimAngle`; camera follows player
+- [x] `core/types.ts`: `Vec2`, `PlayerState` (pos, vel, angle, hp, weaponId, ammo…), `InputCommand`, `GameState` (players, projectiles, tick)
+- [x] `core/config.ts`: `TICK_RATE`, `MOVE_SPEED`, `PLAYER_RADIUS`, walk-vs-run speeds
+- [x] `core/simulation.ts`: `applyInput(state, cmd, dt)` — normalize diagonal movement, apply velocity, resolve collision
+- [x] `core/collision.ts`: circle-vs-tile-grid resolution (check the 4–9 tiles around the player, push out along shortest axis). Slide along walls, don't stick
+- [x] Fixed-timestep loop in GameScene: accumulate `delta`, step simulation at `1/TICK_RATE`, render interpolated position (`lerp(prevPos, currPos, alpha)`)
+- [x] `InputSystem.ts`: WASD → move vector, mouse → `aimAngle` (via `Phaser.Math.Angle.Between` from player screen pos to pointer), produce one `InputCommand` per tick
+- [x] Player sprite rotates to `aimAngle`; camera follows player
 
 **Gotchas:**
 
@@ -68,12 +68,12 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Real maps authored in Tiled, loaded into both rendering and collision.
 
-- [ ] Install Tiled, make a small test map: layers `floor`, `walls`, object layers `spawns_t`, `spawns_ct`, `bombsites`
-- [ ] Export as JSON into `public/assets/maps/`
-- [ ] `MapLoader.ts`: load tilemap in Phaser for rendering **and** extract the walls layer into a plain `number[][]` collision grid for `core/`
-- [ ] Spawn points and bombsite rects parsed from object layers into `MapData`
-- [ ] Wall tiles also exported as a list of edge segments (or rects) — the raycaster in Phase 3/4 needs geometry, not just a grid. Merge adjacent tiles into longer segments for performance
-- [ ] Build one real map (a Dust2-style two-site layout works: mid, two lanes, connectors)
+- [x] Install Tiled, make a small test map: layers `floor`, `walls`, object layers `spawns_t`, `spawns_ct`, `bombsites`
+- [x] Export as JSON into `public/assets/maps/`
+- [x] `MapLoader.ts`: load tilemap in Phaser for rendering **and** extract the walls layer into a plain `number[][]` collision grid for `core/`
+- [x] Spawn points and bombsite rects parsed from object layers into `MapData`
+- [x] Wall tiles also exported as a list of edge segments (or rects) — the raycaster in Phase 3/4 needs geometry, not just a grid. Merge adjacent tiles into longer segments for performance
+- [x] Build one real map (a Dust2-style two-site layout works: mid, two lanes, connectors)
 
 **Done when:** the map renders, the player collides with authored walls, spawn points work.
 
@@ -83,12 +83,12 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Hitscan gunplay with real weapon variety.
 
-- [ ] `core/raycast.ts`: segment-vs-segment and ray-vs-wall-segments intersection returning nearest hit point + distance. This function is shared with the vision system — write it once, well
-- [ ] `core/weapons.ts` + weapon table in `config.ts`: damage, fire rate, magazine, reload time, spread (base + bloom while moving/firing), range falloff, price, movement speed multiplier. Start with: knife, pistol, SMG, rifle, sniper
-- [ ] Fire logic in simulation: on `shoot` button, if fire-rate timer elapsed and ammo > 0 → cast ray from player at `aimAngle + randomSpread`, check wall hit vs player-circle hits (nearest wins), apply damage
-- [ ] Reload (R), weapon switching (1/2/3 + scroll), ammo tracking in `PlayerState`
-- [ ] Death: hp ≤ 0 → mark dead, drop to spectator-ish state (respawn instantly for now; rounds come in Phase 7)
-- [ ] Rendering side (`EffectsSystem`): tracer line (fade over ~60ms), muzzle flash, impact spark on walls, hit marker on player hits
+- [x] `core/raycast.ts`: segment-vs-segment and ray-vs-wall-segments intersection returning nearest hit point + distance. This function is shared with the vision system — write it once, well
+- [x] `core/weapons.ts` + weapon table in `config.ts`: damage, fire rate, magazine, reload time, spread (base + bloom while moving/firing), range falloff, price, movement speed multiplier. Start with: knife, pistol, SMG, rifle, sniper
+- [x] Fire logic in simulation: on `shoot` button, if fire-rate timer elapsed and ammo > 0 → cast ray from player at `aimAngle + randomSpread`, check wall hit vs player-circle hits (nearest wins), apply damage
+- [x] Reload (R), weapon switching (1/2/3 + scroll), ammo tracking in `PlayerState`
+- [x] Death: hp ≤ 0 → mark dead, drop to spectator-ish state (respawn instantly for now; rounds come in Phase 7)
+- [x] Rendering side (`EffectsSystem`): tracer line (fade over ~60ms), muzzle flash, impact spark on walls, hit marker on player hits
 
 **Gotchas:**
 
@@ -104,12 +104,12 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** The CS feel — you only see what your character can see.
 
-- [ ] Visibility polygon in `core/` or `game/systems/VisionSystem.ts`: cast rays to every wall-segment corner (± tiny epsilon angles), sort hit points by angle, build polygon. Red Blob Games' "2D Visibility" article is the reference implementation
-- [ ] Render: draw polygon into a `Graphics`/RenderTexture used as a **geometry mask** over a darkness layer (or invert: darkness everywhere, punch out the polygon)
-- [ ] **View-cone (decided):** intersect the visibility polygon with a ~110° cone around `aimAngle`, plus a 360° awareness circle of 2–3 tiles radius around the player. Cone angle, awareness radius, and a `fullCircleVision` toggle all live in `core/config.ts` for playtesting
-- [ ] Enemies inside the awareness circle are always visible regardless of facing (prevents cheap point-blank backstabs feeling unfair)
-- [ ] Enemy culling: enemies (and their tracers/sounds markers) only render if inside the visibility polygon — a point-in-polygon test, or cheaper: single raycast player→enemy checking wall occlusion
-- [ ] Performance pass: only recompute when the player moves/rotates beyond a threshold; only consider wall segments within screen radius
+- [x] Visibility polygon in `core/` or `game/systems/VisionSystem.ts`: cast rays to every wall-segment corner (± tiny epsilon angles), sort hit points by angle, build polygon. Red Blob Games' "2D Visibility" article is the reference implementation
+- [x] Render: draw polygon into a `Graphics`/RenderTexture used as a **geometry mask** over a darkness layer (or invert: darkness everywhere, punch out the polygon)
+- [x] **View-cone (decided):** intersect the visibility polygon with a ~110° cone around `aimAngle`, plus a 360° awareness circle of 2–3 tiles radius around the player. Cone angle, awareness radius, and a `fullCircleVision` toggle all live in `core/config.ts` for playtesting
+- [x] Enemies inside the awareness circle are always visible regardless of facing (prevents cheap point-blank backstabs feeling unfair)
+- [x] Enemy culling: enemies (and their tracers/sounds markers) only render if inside the visibility polygon — a point-in-polygon test, or cheaper: single raycast player→enemy checking wall occlusion
+- [x] Performance pass: only recompute when the player moves/rotates beyond a threshold; only consider wall segments within screen radius
 
 **Gotchas:**
 
@@ -124,15 +124,15 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Make shooting _feel_ good before adding brains and rules.
 
-- [ ] Screen shake (small, on firing heavy weapons and taking damage)
-- [ ] Camera recoil nudge opposite to aim on fire
-- [ ] Blood decals / wall bullet-hole decals (RenderTexture stamps, cap the count)
-- [ ] Shell casing particles
+- [x] Screen shake (small, on firing heavy weapons and taking damage)
+- [x] Camera recoil nudge opposite to aim on fire
+- [x] Blood decals / wall bullet-hole decals (RenderTexture stamps, cap the count)
+- [x] Shell casing particles
 - [x] Audio sourcing: Kenney.nl audio packs (CC0, shippable), Freesound.org (verify licenses), or jsfxr/bfxr for generated placeholder effects. Grab a full placeholder set in one sitting rather than hunting per-sound
   - **Current state: synthesized placeholders** from `tools/generate-audio.mjs`. Before shipping (Phase 8 polish at the latest), replace the WAVs in `public/assets/audio/` with real assets (Kenney.nl is the shippable CC0 option) — same filenames, no code changes needed. See `public/assets/audio/README.md` for the file list.
-- [ ] Audio: per-weapon gunshots, reload, footsteps (rate tied to speed), hit confirm, death. Distance-based volume + pan for other players' sounds
-- [ ] Footstep sounds of _unseen_ enemies are a core CS mechanic — play them positionally even when the enemy isn't rendered
-- [ ] Damage direction indicator on HUD
+- [x] Audio: per-weapon gunshots, reload, footsteps (rate tied to speed), hit confirm, death. Distance-based volume + pan for other players' sounds
+- [x] Footstep sounds of _unseen_ enemies are a core CS mechanic — play them positionally even when the enemy isn't rendered
+- [ ] Damage direction indicator on HUD — **not implemented** (only remaining Phase 5 item)
 
 **Done when:** a 60-second clip of you shooting a dummy looks and sounds satisfying.
 
@@ -142,17 +142,17 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Opponents worth playing against.
 
-- [ ] `pathfinding.ts`: A\* over the collision grid (diagonals allowed with corner-cut check). Path smoothing: skip waypoints if a raycast between them is clear
-- [ ] `BotController.ts` state machine:
+- [x] `pathfinding.ts`: A\* over the collision grid (diagonals allowed with corner-cut check). Path smoothing: skip waypoints if a raycast between them is clear
+- [x] `BotController.ts` state machine:
   - **PATROL / MOVE_TO_OBJECTIVE** — pick target (bombsite, roam waypoint), follow A\* path
   - **ENGAGE** — enemy visible (use the same raycast LOS check): aim with error, fire in bursts, strafe
   - **HUNT** — lost sight: move to last-known-position, then search nearby
   - **RETREAT** (optional) — low hp: fall back
-- [ ] Bot "vision": LOS raycast + field-of-view cone + reaction delay (200–500ms before first shot) — this alone creates believable difficulty
-- [ ] Aim error: gaussian angle offset that shrinks the longer the target is visible; scales with difficulty setting
-- [ ] Hearing: gunshots/footsteps within radius set last-known-position
-- [ ] Bots consume the same `InputCommand` interface — a bot is just another command producer feeding the simulation. **Do not** let bots mutate state directly
-- [ ] Difficulty presets (reaction time, aim error, hp awareness)
+- [x] Bot "vision": LOS raycast + field-of-view cone + reaction delay (200–500ms before first shot) — this alone creates believable difficulty
+- [x] Aim error: gaussian angle offset that shrinks the longer the target is visible; scales with difficulty setting
+- [x] Hearing: gunshots/footsteps within radius set last-known-position
+- [x] Bots consume the same `InputCommand` interface — a bot is just another command producer feeding the simulation. **Do not** let bots mutate state directly
+- [x] Difficulty presets (reaction time, aim error, hp awareness)
 
 **Done when:** a 1v3 deathmatch vs bots is genuinely fun and occasionally kills you.
 
@@ -162,15 +162,15 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 **Goal:** Rounds, economy, bomb defuse.
 
-- [ ] `MatchState.ts`: phases `WARMUP → BUY → LIVE → ROUND_END → (repeat) → MATCH_END`, round timer, score, first-to-13 (or configurable)
-- [ ] Teams: T / CT, team spawns from map data, friendly-fire toggle
-- [ ] Economy (simplified, per design decisions): four numbers in `config.ts` — `START_MONEY`, flat `KILL_REWARD`, `WIN_REWARD`, and `LOSS_BONUS` escalating per consecutive loss (reset on win). Money cap. Keep weapon list at 5–8 items so the buy menu is one screen. Full CS economy (per-weapon kill rewards, utility meta) is a Phase 9+ backlog item
-- [ ] Buy menu (UIScene or React overlay): only during BUY phase, in spawn zone
-- [ ] Bomb: T-side carrier, plant (hold E in bombsite, ~3s), 40s timer, defuse (hold E, 10s / 5s with kit), explosion kills in radius, win conditions (elimination, detonation, defusal, time expiry)
-- [ ] Dead players spectate teammates until round end (no respawn during LIVE)
-- [ ] HUD: hp/armor, ammo, money, round timer, alive counts, bomb-planted state, kill feed
-- [ ] Bot objective logic: Ts move to a site and plant, CTs rotate/defend — wire objectives into the Phase 6 state machine
-- [ ] Scoreboard (Tab): kills/deaths/money
+- [x] `MatchState.ts`: phases `WARMUP → BUY → LIVE → ROUND_END → (repeat) → MATCH_END`, round timer, score, first-to-13 (or configurable)
+- [x] Teams: T / CT, team spawns from map data, friendly-fire toggle
+- [x] Economy (simplified, per design decisions): four numbers in `config.ts` — `START_MONEY`, flat `KILL_REWARD`, `WIN_REWARD`, and `LOSS_BONUS` escalating per consecutive loss (reset on win). Money cap. Keep weapon list at 5–8 items so the buy menu is one screen. Full CS economy (per-weapon kill rewards, utility meta) is a Phase 9+ backlog item
+- [x] Buy menu (UIScene or React overlay): only during BUY phase, in spawn zone
+- [x] Bomb: T-side carrier, plant (hold E in bombsite, ~3s), 40s timer, defuse (hold E, 10s / 5s with kit), explosion kills in radius, win conditions (elimination, detonation, defusal, time expiry)
+- [x] Dead players spectate teammates until round end (no respawn during LIVE)
+- [x] HUD: hp/armor, ammo, money, round timer, alive counts, bomb-planted state, kill feed
+- [x] Bot objective logic: Ts move to a site and plant, CTs rotate/defend — wire objectives into the Phase 6 state machine
+- [x] Scoreboard (Tab): kills/deaths/money
 
 **Done when:** a full 13-round match vs bots plays start to finish with economy and bomb logic working.
 
@@ -178,12 +178,12 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 ## Phase 8 — Content & Polish (pre-multiplayer checkpoint)
 
-- [ ] Second map
-- [ ] 2–3 more weapons + grenades (grenades are _projectile entities_ in the simulation: HE = radial damage, flash = whiteout if in view polygon + facing, smoke = temporary wall segments for the vision system — this is a very satisfying trick)
-- [ ] Armor/helmet purchase, damage model with armor
-- [ ] Minimap (scaled-down render of walls + teammate dots)
-- [ ] Settings: volume, sensitivity, keybinds
-- [ ] Menu flow polish, pause
+- [x] Second map
+- [x] 2–3 more weapons + grenades (grenades are _projectile entities_ in the simulation: HE = radial damage, flash = whiteout if in view polygon + facing, smoke = temporary wall segments for the vision system — this is a very satisfying trick)
+- [x] Armor/helmet purchase, damage model with armor _(implemented as a single `armor` buy item with `ARMOR_ABSORPTION` damage soak — no separate helmet/headshot model)_
+- [x] Minimap (scaled-down render of walls + teammate dots)
+- [ ] Settings: volume ✓ (+ bot difficulty, persisted in `src/game/settings.ts`) — **sensitivity and keybinds not implemented**
+- [x] Menu flow polish, pause
 
 **This is a legitimate "ship it" point for a single-player game.**
 
@@ -215,13 +215,56 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [x] Fill empty slots with bots: shared `BotController` + `assignBotObjectives` (moved to `src/ai/`, runs headless on the server). Teams kept at `TEAM_SIZE`; humans replace bots on join, bots backfill on leave.
 - [x] Deploy: `Dockerfile` (server-only, type-stripping, no build step), `fly.toml`, `docs/DEPLOY.md` (Fly/Railway/VPS + Cloudflare Pages, `VITE_SERVER_URL`, wss, CORS).
 
-**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping. _(Netcode + deploy path in place; real cross-network playtest still to do.)_
+**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping. _(Deployed and playable online — server on Render free, client on Netlify. Pipe works end-to-end; it's noticeably laggy, but Render's free tier is shared/CPU-throttled and the fixed-tick sim + bots may not fit in a tick there, so the netcode itself isn't yet fairly measured. Retest against a local server and/or a paid instance before tuning netcode.)_
+
+---
+
+## Phase 9.5 — Netcode validation, telemetry & hardening (next up)
+
+The multiplayer pipe works end-to-end but has never been fairly measured (see the
+Phase 9 done-when note), and players currently get zero feedback about connection
+quality. This phase is about knowing — and showing — whether the game feels bad
+because of the connection, the server tier, or the code.
+
+### Measurement first (dev-facing)
+
+- [ ] **Server tick instrumentation:** time each tick (rolling avg/max ms), log it and expose it to clients. This settles "is the sim + bots overrunning the tick budget on Render free?" permanently — a tick overrun is indistinguishable from network lag in the browser
+- [ ] **Fair netcode retest:** two browsers vs a local `npm run server`, then vs a small paid instance. Only after this do we know whether prediction/reconciliation/interp need tuning at all
+- [ ] **net_graph-style debug panel** (extend the backtick overlay, per convention): RTT, snapshot arrival rate, interp buffer depth, reconciliation corrections/sec, bytes in/out per second. Build this first — it *is* the measurement tool; the player-facing HUD below is its polished subset
+- [ ] **Per-tick cost profiling + bot staggering:** bot LOS raycasts and A\* repaths are the likely hot spots; stagger bot thinking (each bot thinks every Nth tick) — standard, low-risk win that directly helps cheap hosting
+
+### Player-facing telemetry (standard competitive-game UX)
+
+- [ ] **Ping (RTT):** `MSG_PING`/`MSG_PONG` pair in `protocol.ts` — client sends a timestamp every ~2s, server echoes, client keeps a rolling average. Colyseus doesn't measure this for us
+- [ ] **HUD ping display** (corner readout) + **per-player ping column on the Tab scoreboard** (server collects everyone's RTT, includes it in snapshots)
+- [ ] **Connection-quality indicator:** "connection problem" icon when the interpolation buffer runs dry / snapshots arrive late (client watches inter-arrival times against the fixed 15/s `SNAPSHOT_RATE`). Reconciliation already knows when predictions diverge — corrections/sec is a free health metric
+- [ ] **Server tick health in snapshots** (actual achieved TPS): lets the client distinguish "my connection is bad" from "the server is overloaded" — given the free-tier hosting, arguably the most valuable single number to show
+
+### CS-staple gameplay gaps (audited 2026-07 — these are absent from the code)
+
+- [ ] **Halftime side swap:** no team-swap logic exists in `src/match/` — a first-to-13 match plays every round on the same side, which is unfair on asymmetric defuse maps. Swap teams (and reset economy) after round 12. Biggest gameplay gap. Note: adding halftime makes a 12–12 draw possible — decide draw vs simple overtime then (today first-to-13 with no swap can't draw)
+- [ ] **Weapon drop / pickup:** only the *bomb* drops on death (`MatchState`). Guns should drop as world entities and be picked up by walking over them (+ manual drop key, G) — eco-round scavenging and passing a teammate a rifle are core CS economy moves
+- [ ] **Damage direction indicator** (carried over from Phase 5 — still the only unbuilt Phase 5 item)
+- [ ] **Mouse sensitivity + keybind settings** (carried over from Phase 8 — settings panel only has volume and bot difficulty)
+
+### Multiplayer product gaps
+
+- [ ] **Reconnect handling:** no `allowReconnection` on the server — a browser refresh or Wi-Fi blip mid-match permanently replaces the player with a bot. Grace window (~60s) where the seat is held and the player can rejoin with money/score intact
+- [ ] **In-game chat:** nothing in the protocol. Minimal all-chat + team chat (with basic rate limiting); expected in anything competitive
+
+### Hardening
+
+- [ ] **Tests for `src/core/` + `src/match/`** (vitest — currently there are none): collision resolution, raycast intersections, spread/damage falloff, `tryBuy` incl. the `__proto__` injection case, economy math, bomb timing. This is the code both client and server share — exactly where a regression silently breaks multiplayer fairness
+- [ ] **Replay-based regression tests:** record an input stream, replay it through the deterministic sim, assert the final state (hash). Doubles as groundwork for Phase 10 demo/replay recording
+- [ ] **Real audio assets:** replace the synthesized WAVs in `public/assets/audio/` (Kenney.nl CC0) — same filenames, no code changes; overdue per the Phase 5 note
+- [ ] **Protocol version handshake:** add a `PROTOCOL_VERSION` constant to `protocol.ts`, sent in join options and checked in `onAuth`/`onJoin` — the deployed client (Netlify) and server (Render) ship independently, so a wire-format change silently breaks live clients with confusing symptoms instead of a clear "please refresh" error
+- [ ] **CI (GitHub Actions):** no workflows exist — run `npm run lint` + `npm run build` (+ tests once they exist) on push, so a broken commit can't reach the deploy hooks unnoticed
 
 ---
 
 ## Phase 10 — Post-launch niceties (backlog)
 
-Spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
+Browsable live room list in the lobby (needs a Colyseus `LobbyRoom` — deferred from Phase 9c) · spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
 
 ---
 
