@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ROUNDS_TO_WIN } from '../core/config';
 import { MAPS } from '../game/map/MapLoader';
 import { loadSettings, saveSettings } from '../game/settings';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 import { FACTION_CSS, FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_2, TEXT_3 } from '../game/theme';
 import type { GameConfig } from './MenuScene';
 import type { JoinSpec, OnlineInit } from './OnlineGameScene';
@@ -23,9 +24,10 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   create(): void {
+    applyHiDPI(this);
     this.playerName = loadSettings().playerName;
-    const w = this.scale.width;
-    const h = this.scale.height;
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
 
     this.add
       .text(w / 2, h * 0.16, 'ONLINE', {

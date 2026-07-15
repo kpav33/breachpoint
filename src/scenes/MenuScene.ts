@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ROUNDS_TO_WIN } from '../core/config';
 import { SettingsPanel } from '../game/ui/SettingsPanel';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 import { FACTION_CSS, FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_2, TEXT_3 } from '../game/theme';
 import { MAPS } from '../game/map/MapLoader';
 
@@ -32,8 +33,9 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    applyHiDPI(this);
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
 
     this.add
       .text(w / 2, h * 0.2, 'TACTICAL · TOP-DOWN', {

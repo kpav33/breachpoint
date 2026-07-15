@@ -26,6 +26,7 @@ import type { InputMessage, Snapshot, Welcome } from '../net/protocol';
 import { PlayerView } from '../game/entities/PlayerView';
 import { loadMap } from '../game/map/MapLoader';
 import { FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_3 } from '../game/theme';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI, screenX, screenY } from '../game/display';
 
 const FIXED_DT = 1 / TICK_RATE;
 
@@ -111,8 +112,9 @@ export class OnlineGameScene extends GameScene {
   }
 
   create(): void {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    applyHiDPI(this);
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
     this.statusText = this.add
       .text(w / 2, h / 2 - 10, 'CONNECTING…', {
         fontFamily: FONT_DISPLAY,
@@ -187,7 +189,7 @@ export class OnlineGameScene extends GameScene {
   private showRoomCode(roomId: string): void {
     this.codeLabel?.destroy();
     this.codeLabel = this.add
-      .text(12, 10, `ROOM CODE  ${roomId}`, {
+      .text(screenX(12), screenY(10), `ROOM CODE  ${roomId}`, {
         fontFamily: FONT_DATA,
         fontSize: '12px',
         fontStyle: '600',
@@ -420,9 +422,9 @@ export class OnlineGameScene extends GameScene {
   private showDisconnected(): void {
     if (this.disconnectedNoticeShown) return;
     this.disconnectedNoticeShown = true;
-    const w = this.scale.width;
+    const w = GAME_WIDTH;
     this.add
-      .text(w / 2, 90, 'DISCONNECTED — ESC · QUIT TO MENU', {
+      .text(screenX(w / 2), screenY(90), 'DISCONNECTED — ESC · QUIT TO MENU', {
         fontFamily: FONT_DISPLAY,
         fontSize: '20px',
         fontStyle: '700',

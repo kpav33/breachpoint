@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { screenX, screenY } from '../display';
 
 /**
  * Debug overlay scaffold, toggled with backtick (`).
@@ -18,7 +19,7 @@ export class DebugOverlay {
 
   constructor(private readonly scene: Phaser.Scene) {
     this.text = scene.add
-      .text(8, 8, '', {
+      .text(screenX(8), screenY(8), '', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#00ff88',

@@ -4,6 +4,7 @@ import { AWARENESS_RADIUS, FULL_CIRCLE_VISION } from '../../core/config';
 import { smokeSegments, visibilityPolygon } from '../../core/vision';
 import type { VisionResult } from '../../core/vision';
 import { WORLD } from '../theme';
+import { GAME_WIDTH, GAME_HEIGHT, screenX, screenY } from '../display';
 
 /** How dark the unseen world is (0..1). Render-side constant. */
 const DARKNESS_ALPHA = 0.86;
@@ -37,7 +38,7 @@ export class VisionSystem {
     private readonly segments: Segment[],
   ) {
     this.rt = scene.add
-      .renderTexture(0, 0, scene.scale.width, scene.scale.height)
+      .renderTexture(screenX(0), screenY(0), GAME_WIDTH, GAME_HEIGHT)
       .setOrigin(0)
       .setScrollFactor(0)
       .setDepth(50);
@@ -80,8 +81,9 @@ export class VisionSystem {
 
     // Redraw every frame (camera scroll changes even when the polygon
     // doesn't): fill darkness, erase the vision shape in screen space.
+    // worldView (not scrollX/Y) so this stays correct under hi-DPI camera zoom.
     const cam = this.scene.cameras.main;
-    const toScreen = (p: Vec2) => ({ x: p.x - cam.scrollX, y: p.y - cam.scrollY });
+    const toScreen = (p: Vec2) => ({ x: p.x - cam.worldView.x, y: p.y - cam.worldView.y });
 
     this.rt.clear();
     // Fog is the void color at high alpha, so the unseen world sinks toward

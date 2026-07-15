@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SettingsPanel } from '../game/ui/SettingsPanel';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 import { FACTION_CSS, FONT_DISPLAY, LINE, PANEL_ALPHA, PANEL_FILL, TEXT_1, TEXT_2 } from '../game/theme';
 
 /**
@@ -21,8 +22,9 @@ export class PauseScene extends Phaser.Scene {
   }
 
   create(): void {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    applyHiDPI(this);
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
 
     this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.55);
     this.add

@@ -19,12 +19,11 @@
         background: #0d1014; /* theme.ts WORLD.void */
         overflow: hidden;
       }
+      /* No flex centering here — Phaser's autoCenter positions the canvas,
+         and centering the margin box it produces would double the offset. */
       #app {
         width: 100%;
         height: 100%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
       }
     </style>
   </head>

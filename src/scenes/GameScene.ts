@@ -46,6 +46,7 @@ import { PlayerView } from '../game/entities/PlayerView';
 import { BotController } from '../ai/BotController';
 import { assignBotObjectives, buildBotWorld } from '../ai/objectives';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI, screenX, screenY } from '../game/display';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
 import { loadSettings } from '../game/settings';
 import type { GameConfig } from './MenuScene';
@@ -169,6 +170,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   }
 
   create(): void {
+    applyHiDPI(this);
     this.map = loadMap(this, this.config.mapKey).data;
     this.state = createGameState();
     this.views = {};
@@ -197,9 +199,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.bombGfx = this.add.graphics().setDepth(4);
     // Smoke clouds cover players (5) but sit under the fog layer (50).
     this.smokeGfx = this.add.graphics().setDepth(40);
-    this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
+    this.damageIndicatorGfx = this.add
+      .graphics({ x: screenX(0), y: screenY(0) })
+      .setScrollFactor(0)
+      .setDepth(600);
     this.flashRect = this.add
-      .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0xffffff)
+      .rectangle(screenX(GAME_WIDTH / 2), screenY(GAME_HEIGHT / 2), GAME_WIDTH, GAME_HEIGHT, 0xffffff)
       .setScrollFactor(0)
       .setDepth(650)
       .setAlpha(0);
@@ -801,8 +806,8 @@ export class GameScene extends Phaser.Scene implements HudSource {
   private updateDamageIndicators(dt: number): void {
     const g = this.damageIndicatorGfx;
     g.clear();
-    const cx = this.scale.width / 2;
-    const cy = this.scale.height / 2;
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
     for (let i = this.damageIndicators.length - 1; i >= 0; i--) {
       const ind = this.damageIndicators[i];
       ind.age += dt;

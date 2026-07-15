@@ -20,6 +20,7 @@ import {
   TEXT_3,
   WORLD,
 } from '../game/theme';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 
 export interface BuyMenuItem {
   item: BuyItem;
@@ -168,8 +169,9 @@ export class UIScene extends Phaser.Scene {
   }
 
   create(): void {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    applyHiDPI(this);
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
     const text = (
       x: number,
       y: number,
@@ -267,7 +269,7 @@ export class UIScene extends Phaser.Scene {
 
   private createBuyPanel(): void {
     const x = 30;
-    const y = this.scale.height * 0.22;
+    const y = GAME_HEIGHT * 0.22;
     const width = 250;
     const rowH = 28;
     const height = 54 + BUY_ROWS * rowH;
@@ -302,8 +304,8 @@ export class UIScene extends Phaser.Scene {
   }
 
   private createScoreboard(): void {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    const w = GAME_WIDTH;
+    const h = GAME_HEIGHT;
     const bw = 560;
     const bh = 300;
 
@@ -346,7 +348,7 @@ export class UIScene extends Phaser.Scene {
   /** Push one kill-feed line. Your own death overrides to danger red. */
   addKillFeedLine(line: string, color: string, victimIsMe = false): void {
     const t = this.add
-      .text(this.scale.width - 14, 0, line, this.dataStyle(13, victimIsMe ? DANGER : color, '600'))
+      .text(GAME_WIDTH - 14, 0, line, this.dataStyle(13, victimIsMe ? DANGER : color, '600'))
       .setOrigin(1, 0)
       .setDepth(10);
     this.killFeed.unshift({ text: t, ttl: 5000 });
@@ -425,8 +427,8 @@ export class UIScene extends Phaser.Scene {
     // to defuse.
     const fill = d.action.label === 'DEFUSING' ? FACTION.CT : BOMB;
     const w = 220;
-    const x = this.scale.width / 2 - w / 2;
-    const y = this.scale.height * 0.6;
+    const x = GAME_WIDTH / 2 - w / 2;
+    const y = GAME_HEIGHT * 0.6;
     this.actionText.setText(`${d.action.label} ${Math.round(d.action.frac * 100)}%`);
     g.fillStyle(PANEL_FILL, PANEL_ALPHA);
     g.fillRect(x, y, w, 12);
