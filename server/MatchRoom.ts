@@ -18,6 +18,7 @@ import {
   FLASH_RANGE_PX,
   INPUT_QUEUE_MAX,
   LAG_COMP_MAX_REWIND_SEC,
+  PERF_WINDOW_SEC,
   ROUNDS_TO_WIN,
   SNAPSHOT_RATE,
   START_MONEY,
@@ -34,8 +35,8 @@ import type { BuyItem, MatchState } from '../src/match/MatchState.ts';
 import { BotController } from '../src/ai/BotController.ts';
 import { assignBotObjectives, buildBotWorld } from '../src/ai/objectives.ts';
 import type { BotWorld } from '../src/ai/objectives.ts';
-import { MSG_BUY, MSG_INPUT, MSG_SNAPSHOT, MSG_WELCOME } from '../src/net/protocol.ts';
-import type { InputMessage, JoinOptions, Snapshot, Welcome } from '../src/net/protocol.ts';
+import { MSG_BUY, MSG_INPUT, MSG_PING, MSG_PONG, MSG_SNAPSHOT, MSG_WELCOME } from '../src/net/protocol.ts';
+import type { InputMessage, JoinOptions, Ping, ServerPerf, Snapshot, Welcome } from '../src/net/protocol.ts';
 
 const FIXED_DT = 1 / TICK_RATE;
 /** Cap a hitching event-loop delta so the accumulator can't spiral. */
@@ -77,6 +78,8 @@ export class MatchRoom extends Room {
   private mapKey = DEFAULT_MAP;
   private matchName = 'Match';
   private names: Record<string, string> = { bomb: 'the bomb' };
+  /** Last RTT each human reported via MSG_PING, ms (for scoreboards). */
+  private pings: Record<string, number> = {};
   /** Buffered inputs per player, applied one per tick (oldest first). */
   private queues = new Map<string, InputMessage[]>();
   /** Last applied command per player — reused (minus one-shots) when the buffer runs dry. */
@@ -99,6 +102,18 @@ export class MatchRoom extends Room {
   private joinCounter = 0;
   private accumulator = 0;
   private snapshotAcc = 0;
+
+  // Tick instrumentation (Phase 9.5): rolling PERF_WINDOW_SEC stats, so a
+  // tick-budget overrun is distinguishable from network lag on the client.
+  private perf: ServerPerf = { tickMs: 0, tickMsMax: 0, botMs: 0, tps: 0 };
+  private perfTickMsSum = 0;
+  private perfTickMsMax = 0;
+  private perfBotMsSum = 0;
+  private perfTicks = 0;
+  private perfWindowStart = performance.now();
+  private perfLogAcc = 0;
+  /** Bot-brain time inside the current step(), accumulated by step itself. */
+  private botMsThisTick = 0;
 
   onCreate(options: JoinOptions): void {
     if (
@@ -129,6 +144,7 @@ export class MatchRoom extends Room {
 
     this.onMessage(MSG_INPUT, (client, cmd: unknown) => this.onInput(client, cmd));
     this.onMessage(MSG_BUY, (client, item: unknown) => this.onBuy(client, item));
+    this.onMessage(MSG_PING, (client, msg: unknown) => this.onPing(client, msg));
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
     console.log(`room ${this.roomId} created — map ${this.mapKey}, first to ${roundsToWin}`);
   }
@@ -149,6 +165,9 @@ export class MatchRoom extends Room {
         : `Player ${++this.joinCounter}`;
     this.names[id] = name;
     this.queues.set(id, []);
+    // Humans always have a ping entry (0 until their first report) — the
+    // scoreboard uses "no entry" to mean "bot".
+    this.pings[id] = 0;
 
     // Mid-round joiners sit out until the next round respawns everyone.
     if (this.match.phase === 'live' || this.match.phase === 'round_end') {
@@ -192,6 +211,7 @@ export class MatchRoom extends Room {
     delete this.match.stats[id];
     delete this.names[id];
     delete this.bots[id];
+    delete this.pings[id];
     this.queues.delete(id);
     this.lastCmd.delete(id);
     this.lastInputTick.delete(id);
@@ -325,17 +345,66 @@ export class MatchRoom extends Room {
     tryBuy(this.match, this.game, client.sessionId, item as BuyItem);
   }
 
+  /** Echo the client's timestamp back verbatim; the client computes the RTT. */
+  private onPing(client: Client, msg: unknown): void {
+    if (typeof msg !== 'object' || msg === null) return;
+    const m = msg as Record<string, unknown>;
+    if (typeof m.t !== 'number' || !Number.isFinite(m.t)) return;
+    // Piggybacked self-reported RTT, clamped to a sane display range.
+    if (typeof m.rtt === 'number' && Number.isFinite(m.rtt)) {
+      this.pings[client.sessionId] = Math.min(999, Math.max(0, Math.round(m.rtt)));
+    }
+    const pong: Ping = { t: m.t };
+    client.send(MSG_PONG, pong);
+  }
+
   private tick(dtMs: number): void {
     this.accumulator += Math.min(dtMs, MAX_TICK_DELTA_MS) / 1000;
     while (this.accumulator >= FIXED_DT) {
+      const t0 = performance.now();
+      this.botMsThisTick = 0;
       this.step();
+      const cost = performance.now() - t0;
+      this.perfTickMsSum += cost;
+      this.perfBotMsSum += this.botMsThisTick;
+      if (cost > this.perfTickMsMax) this.perfTickMsMax = cost;
+      this.perfTicks++;
       this.accumulator -= FIXED_DT;
     }
+    this.rollPerfWindow();
 
     this.snapshotAcc += Math.min(dtMs, MAX_TICK_DELTA_MS) / 1000;
     if (this.snapshotAcc >= 1 / SNAPSHOT_RATE) {
       this.snapshotAcc %= 1 / SNAPSHOT_RATE;
       this.broadcastSnapshot();
+    }
+  }
+
+  /** Fold the accumulated tick costs into `perf` every PERF_WINDOW_SEC. */
+  private rollPerfWindow(): void {
+    const now = performance.now();
+    const elapsed = (now - this.perfWindowStart) / 1000;
+    if (elapsed < PERF_WINDOW_SEC) return;
+    this.perf = {
+      tickMs: this.perfTicks > 0 ? this.perfTickMsSum / this.perfTicks : 0,
+      tickMsMax: this.perfTickMsMax,
+      botMs: this.perfTicks > 0 ? this.perfBotMsSum / this.perfTicks : 0,
+      tps: this.perfTicks / elapsed,
+    };
+    this.perfTickMsSum = 0;
+    this.perfTickMsMax = 0;
+    this.perfBotMsSum = 0;
+    this.perfTicks = 0;
+    this.perfWindowStart = now;
+
+    this.perfLogAcc += elapsed;
+    if (this.perfLogAcc >= 10) {
+      this.perfLogAcc = 0;
+      const p = this.perf;
+      console.log(
+        `room ${this.roomId} tick avg ${p.tickMs.toFixed(2)}ms max ${p.tickMsMax.toFixed(2)}ms ` +
+          `(bots ${p.botMs.toFixed(2)}ms) @ ${p.tps.toFixed(1)} tps`,
+      );
     }
   }
 
@@ -348,7 +417,9 @@ export class MatchRoom extends Room {
 
     const botsActive = this.match.phase === 'live' || this.match.phase === 'round_end';
     if (botsActive) {
+      const b0 = performance.now();
       assignBotObjectives(this.bots, this.match, this.botWorld.siteAnchors, this.tIds, this.ctIds);
+      this.botMsThisTick += performance.now() - b0;
     }
 
     const evStart = this.game.events.length;
@@ -362,7 +433,9 @@ export class MatchRoom extends Room {
       let viewTick = this.game.tick; // bots resolve shots at the present
 
       if (bot) {
+        const b0 = performance.now();
         cmd = botsActive ? bot.update(this.game, FIXED_DT) : idleCommand();
+        this.botMsThisTick += performance.now() - b0;
       } else {
         const queued = this.queues.get(id)?.shift();
         if (queued) {
@@ -498,6 +571,8 @@ export class MatchRoom extends Room {
       match: this.match,
       names: this.names,
       acks: Object.fromEntries(this.lastInputTick),
+      perf: this.perf,
+      pings: this.pings,
     };
     this.broadcast(MSG_SNAPSHOT, snapshot);
     this.game.events = [];

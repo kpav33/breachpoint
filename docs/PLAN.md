@@ -228,17 +228,17 @@ because of the connection, the server tier, or the code.
 
 ### Measurement first (dev-facing)
 
-- [ ] **Server tick instrumentation:** time each tick (rolling avg/max ms), log it and expose it to clients. This settles "is the sim + bots overrunning the tick budget on Render free?" permanently — a tick overrun is indistinguishable from network lag in the browser
+- [x] **Server tick instrumentation:** time each tick (rolling avg/max ms), log it and expose it to clients. This settles "is the sim + bots overrunning the tick budget on Render free?" permanently — a tick overrun is indistinguishable from network lag in the browser — `MatchRoom` keeps a rolling `PERF_WINDOW_SEC` window (avg/max tick ms, bot ms, achieved TPS), logs it every ~10 s, and ships it in every snapshot as `Snapshot.perf`
 - [ ] **Fair netcode retest:** two browsers vs a local `npm run server`, then vs a small paid instance. Only after this do we know whether prediction/reconciliation/interp need tuning at all
-- [ ] **net_graph-style debug panel** (extend the backtick overlay, per convention): RTT, snapshot arrival rate, interp buffer depth, reconciliation corrections/sec, bytes in/out per second. Build this first — it *is* the measurement tool; the player-facing HUD below is its polished subset
-- [ ] **Per-tick cost profiling + bot staggering:** bot LOS raycasts and A\* repaths are the likely hot spots; stagger bot thinking (each bot thinks every Nth tick) — standard, low-risk win that directly helps cheap hosting
+- [x] **net_graph-style debug panel** (extend the backtick overlay, per convention): RTT, snapshot arrival rate, interp buffer depth, reconciliation corrections/sec, bytes in/out per second. Build this first — it *is* the measurement tool; the player-facing HUD below is its polished subset — `OnlineGameScene.extendDebug()` adds `net rtt / net snap / net recon / net traffic / server` lines (traffic is ≈JSON size of decoded messages, not wire bytes)
+- [x] **Per-tick cost profiling + bot staggering:** bot LOS raycasts and A\* repaths are the likely hot spots; stagger bot thinking (each bot thinks every Nth tick) — standard, low-risk win that directly helps cheap hosting — bot time is profiled separately in `Snapshot.perf.botMs`; the LOS raycast scan runs every `BOT_SCAN_EVERY_TICKS` (offset per bot), while hearing/movement/aim still update every tick
 
 ### Player-facing telemetry (standard competitive-game UX)
 
-- [ ] **Ping (RTT):** `MSG_PING`/`MSG_PONG` pair in `protocol.ts` — client sends a timestamp every ~2s, server echoes, client keeps a rolling average. Colyseus doesn't measure this for us
-- [ ] **HUD ping display** (corner readout) + **per-player ping column on the Tab scoreboard** (server collects everyone's RTT, includes it in snapshots)
-- [ ] **Connection-quality indicator:** "connection problem" icon when the interpolation buffer runs dry / snapshots arrive late (client watches inter-arrival times against the fixed 15/s `SNAPSHOT_RATE`). Reconciliation already knows when predictions diverge — corrections/sec is a free health metric
-- [ ] **Server tick health in snapshots** (actual achieved TPS): lets the client distinguish "my connection is bad" from "the server is overloaded" — given the free-tier hosting, arguably the most valuable single number to show
+- [x] **Ping (RTT):** `MSG_PING`/`MSG_PONG` pair in `protocol.ts` — client sends a timestamp every ~2s (`PING_INTERVAL_MS`), server echoes, client keeps a rolling average. Colyseus doesn't measure this for us. Shown on the debug panel; the HUD readout below is still open
+- [x] **HUD ping display** (corner readout) + **per-player ping column on the Tab scoreboard** (server collects everyone's RTT, includes it in snapshots) — clients piggyback their rolling RTT on `MSG_PING`; the server relays them as `Snapshot.pings`. Bots render as "BOT"; offline games hide the readout and the column entirely
+- [x] **Connection-quality indicator:** "connection problem" icon when the interpolation buffer runs dry / snapshots arrive late (client watches inter-arrival times against the fixed 15/s `SNAPSHOT_RATE`). Reconciliation already knows when predictions diverge — corrections/sec is a free health metric — blinking warning under the score line: "CONNECTION PROBLEM" when the newest snapshot is >3 intervals old, "SERVER OVERLOADED" when `Snapshot.perf.tps` drops under 90% of `TICK_RATE` (corrections/sec stayed debug-panel-only — it's a tuning signal, not a player-facing one)
+- [x] **Server tick health in snapshots** (actual achieved TPS): lets the client distinguish "my connection is bad" from "the server is overloaded" — given the free-tier hosting, arguably the most valuable single number to show — `Snapshot.perf` (tick avg/max ms, bot ms, TPS); surfaced on the debug panel, not yet on the player HUD
 
 ### CS-staple gameplay gaps (audited 2026-07 — these are absent from the code)
 
@@ -265,6 +265,8 @@ because of the connection, the server tier, or the code.
 ## Phase 10 — Post-launch niceties (backlog)
 
 Browsable live room list in the lobby (needs a Colyseus `LobbyRoom` — deferred from Phase 9c) · spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
+
+**Utility practice mode** (the CS "grenade practice map" experience — learning lineups is core to competitive play): an offline sandbox on any map with no bots/rounds, infinite money and grenades, a toggleable grenade trajectory preview (draw the predicted arc + landing spot before throwing — the sim's projectile step is deterministic, so the client can just dry-run it), post-throw trail rendering, smoke/flash coverage visualization, and a "rethrow last grenade" key. Most of it is client-only debug-overlay-style drawing on top of the existing offline GameScene.
 
 ---
 

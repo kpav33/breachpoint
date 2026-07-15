@@ -50,6 +50,16 @@ export interface ScoreboardRow {
   deaths: number;
   money: number;
   alive: boolean;
+  /** RTT ms for online humans; null offline and for bots (shown as BOT). */
+  ping: number | null;
+}
+
+/** Player-facing connection telemetry (null in offline games). */
+export interface HudNet {
+  /** Rolling RTT, ms; null until the first pong lands. */
+  rttMs: number | null;
+  /** Short warning while the connection or server is unhealthy, else null. */
+  problem: string | null;
 }
 
 /** Two-line banner lockup: tracked eyebrow (context) over a headline (event). */
@@ -90,6 +100,8 @@ export interface HudData {
   /** Non-null only while the buy menu should be open. */
   buyMenu: BuyMenuItem[] | null;
   scoreboard: ScoreboardRow[];
+  /** Connection telemetry — null offline (hides the ping readout). */
+  net: HudNet | null;
 }
 
 export interface HudSource {
@@ -143,6 +155,8 @@ export class UIScene extends Phaser.Scene {
   private minimapDots!: Phaser.GameObjects.Graphics;
   private minimapScale = 1;
   private minimapOrigin = { x: 14, y: 14 };
+  private pingText!: Phaser.GameObjects.Text;
+  private netWarnText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('UI');
@@ -187,8 +201,11 @@ export class UIScene extends Phaser.Scene {
     this.scoreLineMid = text(w / 2, 44, this.displayStyle(17, TEXT_2, '600'), 0.5);
     this.scoreLineCT = text(w / 2 + 14, 44, this.displayStyle(17, FACTION_CSS.CT, '700'), 0);
     this.roundText = text(w / 2, 66, this.displayStyle(12, TEXT_3, '600'), 0.5);
+    // Connection warning, blinking under the score line.
+    this.netWarnText = text(w / 2, 88, this.displayStyle(13, DANGER, '700'), 0.5);
 
-    // Bottom left: hp + armor + money. Bottom right: gear + weapon + ammo.
+    // Bottom left: ping + hp + armor + money. Bottom right: gear + weapon + ammo.
+    this.pingText = text(14, h - 58, this.dataStyle(11, TEXT_3, '500'), 0, 1);
     this.hpText = text(14, h - 36, this.dataStyle(22), 0, 1);
     this.armorText = text(120, h - 36, this.dataStyle(15, TEXT_2), 0, 1);
     this.moneyText = text(14, h - 12, this.dataStyle(17, MONEY), 0, 1);
@@ -306,7 +323,7 @@ export class UIScene extends Phaser.Scene {
   private createScoreboard(): void {
     const w = GAME_WIDTH;
     const h = GAME_HEIGHT;
-    const bw = 560;
+    const bw = 620; // fits the online PING column with a comfortable gutter
     const bh = 300;
 
     const bg = this.panel(bw, bh);
@@ -398,6 +415,11 @@ export class UIScene extends Phaser.Scene {
     this.subText.setText(banner?.sub ?? '');
     this.spectateText.setText(d.spectating ? `SPECTATING ${d.spectating}` : '');
 
+    this.pingText.setText(d.net?.rttMs != null ? `PING ${Math.round(d.net.rttMs)} MS` : '');
+    const warn = d.net?.problem ?? null;
+    this.netWarnText.setText(warn ?? '');
+    this.netWarnText.setVisible(warn !== null && Math.floor(this.time.now / 400) % 2 === 0);
+
     this.drawActionBar(d);
     this.drawBuyMenu(d);
     this.drawScoreboard(d);
@@ -460,13 +482,16 @@ export class UIScene extends Phaser.Scene {
     this.boardPanel.setVisible(show);
     if (!show) return;
     this.boardHeadScore.setText(`${d.scoreT} : ${d.scoreCT}`);
+    // The PING column only exists online (offline no row has a ping).
+    const hasPing = d.scoreboard.some((r) => r.ping !== null);
     const body = (team: Team): string => {
-      const header = 'PLAYER         K  D     $';
+      const header = 'PLAYER         K  D     $' + (hasPing ? ' PING' : '');
       const rows = d.scoreboard
         .filter((r) => r.team === team)
         .map(
           (r) =>
-            `${r.alive ? ' ' : '†'} ${r.name.padEnd(12)} ${String(r.kills).padStart(2)} ${String(r.deaths).padStart(2)} ${String(r.money).padStart(5)}`,
+            `${r.alive ? ' ' : '†'} ${r.name.padEnd(12)} ${String(r.kills).padStart(2)} ${String(r.deaths).padStart(2)} ${String(r.money).padStart(5)}` +
+            (hasPing ? ` ${(r.ping === null ? 'BOT' : String(r.ping)).padStart(4)}` : ''),
         );
       return [header, ...rows].join('\n');
     };

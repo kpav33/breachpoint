@@ -113,6 +113,10 @@ export const MAX_ONLINE_PLAYERS = 10;
 export const INTERP_DELAY_MS = 100;
 /** How much position history the server keeps for lag-compensated hits, sec. */
 export const LAG_COMP_MAX_REWIND_SEC = 1;
+/** How often the client sends an RTT probe (MSG_PING), ms. */
+export const PING_INTERVAL_MS = 2000;
+/** Rolling window for server tick-cost stats (avg/max/TPS), sec. */
+export const PERF_WINDOW_SEC = 2;
 
 // --- Bots (Phase 6) -------------------------------------------------------
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
@@ -175,6 +179,13 @@ export const BOT_FOOTSTEP_MIN_SPEED = 140;
 export const BOT_WAYPOINT_REACHED_PX = 10;
 /** How often a bot recomputes its path while chasing a moving goal, sec. */
 export const BOT_REPATH_SEC = 0.6;
+/**
+ * Bots run their LOS raycast scan every Nth tick (staggered per bot) instead
+ * of every tick — the single biggest per-tick server cost. Movement, aiming
+ * and hearing still update every tick; at 60 TPS a scan every 3rd tick means
+ * at most ~33 ms of extra sighting latency, far below any reaction time.
+ */
+export const BOT_SCAN_EVERY_TICKS = 3;
 /** No progress along a path for this long forces a repath, sec. */
 export const BOT_STUCK_SEC = 0.7;
 /** Seconds spent scanning around the last-known-position before giving up. */

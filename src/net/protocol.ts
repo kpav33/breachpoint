@@ -14,12 +14,16 @@ export const ROOM_NAME = 'match';
 export const MSG_INPUT = 'input';
 /** Payload: BuyItem — server validates via match/tryBuy. */
 export const MSG_BUY = 'buy';
+/** Payload: Ping — sent every PING_INTERVAL_MS; the server echoes it back. */
+export const MSG_PING = 'ping';
 
 // Server → client messages.
 /** Payload: Welcome — sent once on join. */
 export const MSG_WELCOME = 'welcome';
 /** Payload: Snapshot — broadcast at SNAPSHOT_RATE. */
 export const MSG_SNAPSHOT = 'snapshot';
+/** Payload: Ping — the client's ping echoed verbatim (RTT = now − t). */
+export const MSG_PONG = 'pong';
 
 /** joinOrCreate options; only the room creator's values take effect. */
 export interface JoinOptions {
@@ -36,6 +40,32 @@ export interface Welcome {
   playerId: string;
   /** Map the room is running (creator's pick), e.g. "de_yard". */
   mapKey: string;
+}
+
+/** RTT probe. `t` is an opaque client timestamp, echoed back unchanged. */
+export interface Ping {
+  t: number;
+  /**
+   * The client's current rolling RTT estimate, ms (absent until the first
+   * pong lands). The server collects these into `Snapshot.pings` so every
+   * client can show a scoreboard ping column.
+   */
+  rtt?: number;
+}
+
+/**
+ * Server tick health, measured over a rolling window (Phase 9.5). Lets the
+ * client distinguish "my connection is bad" from "the server is overloaded".
+ */
+export interface ServerPerf {
+  /** Average cost of one simulation tick over the window, ms. */
+  tickMs: number;
+  /** Worst single tick in the window, ms. */
+  tickMsMax: number;
+  /** Share of tickMs spent running bot brains, ms. */
+  botMs: number;
+  /** Achieved ticks per second (target: TICK_RATE). */
+  tps: number;
 }
 
 /** One tick of client intent plus what that client was looking at. */
@@ -63,4 +93,8 @@ export interface Snapshot {
    * Clients drop acknowledged inputs and replay the rest (reconciliation).
    */
   acks: Record<string, number>;
+  /** Server tick health over the last measurement window. */
+  perf: ServerPerf;
+  /** Last reported RTT per human player, ms (bots have no entry). */
+  pings: Record<string, number>;
 }

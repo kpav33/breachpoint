@@ -12,7 +12,7 @@
 // Everything presentational (fog, effects, audio, HUD, banners) is inherited
 // unchanged from GameScene.
 import type { Room } from 'colyseus.js';
-import { INTERP_DELAY_MS, TICK_RATE } from '../core/config';
+import { INTERP_DELAY_MS, PING_INTERVAL_MS, SNAPSHOT_RATE, TICK_RATE } from '../core/config';
 import { Buttons } from '../core/types';
 import type { GameState, InputCommand, PlayerState } from '../core/types';
 import { applyInput, createGameState } from '../core/simulation';
@@ -21,14 +21,36 @@ import type { GameConfig } from './MenuScene';
 import { movementFrozen } from '../match/MatchState';
 import type { BuyItem } from '../match/MatchState';
 import { hostPrivate, joinByCode, quickPlay } from '../net/NetClient';
-import { MSG_BUY, MSG_INPUT, MSG_SNAPSHOT, MSG_WELCOME } from '../net/protocol';
-import type { InputMessage, Snapshot, Welcome } from '../net/protocol';
+import { MSG_BUY, MSG_INPUT, MSG_PING, MSG_PONG, MSG_SNAPSHOT, MSG_WELCOME } from '../net/protocol';
+import type { InputMessage, Ping, ServerPerf, Snapshot, Welcome } from '../net/protocol';
 import { PlayerView } from '../game/entities/PlayerView';
+import type { HudNet } from './UIScene';
 import { loadMap } from '../game/map/MapLoader';
 import { FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_3 } from '../game/theme';
 import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI, screenX, screenY } from '../game/display';
 
 const FIXED_DT = 1 / TICK_RATE;
+
+// --- net_graph tuning (Phase 9.5) ------------------------------------------
+/** Sliding window all per-second net_graph rates are measured over, ms. */
+const NET_WINDOW_MS = 2000;
+/** RTT rolling average length (one sample per ping). */
+const RTT_SAMPLES = 8;
+/** A reconciliation correction counts when the resimulated position differs
+ * from the prediction by more than this, px. */
+const CORRECTION_EPSILON_PX = 1;
+
+/** Drop timestamps that fell out of the sliding window (arrays stay sorted). */
+function prune(times: number[], cutoffMs: number): void {
+  let n = 0;
+  while (n < times.length && times[n] < cutoffMs) n++;
+  if (n > 0) times.splice(0, n);
+}
+
+/** Events in the window expressed as a per-second rate. */
+function perSec(times: number[]): number {
+  return times.length / (NET_WINDOW_MS / 1000);
+}
 
 /** How this client connects — chosen in the lobby. */
 export type JoinSpec =
@@ -87,6 +109,25 @@ export class OnlineGameScene extends GameScene {
   private joinSpec: JoinSpec = { mode: 'quick' };
   private playerName = 'Player';
 
+  // net_graph state (Phase 9.5) — all rates over a NET_WINDOW_MS window.
+  private rttSamples: number[] = [];
+  private serverPerf: ServerPerf | null = null;
+  /** Everyone's server-collected RTTs (scoreboard ping column). */
+  private pings: Record<string, number> = {};
+  /** Arrival time of the newest snapshot (connection-problem detection). */
+  private lastSnapAt = 0;
+  /** Snapshot arrival timestamps (rate + inter-arrival health). */
+  private snapArrivals: number[] = [];
+  /** Timestamps of frames where the interp buffer ran dry (extrapolation hold). */
+  private interpStarves: number[] = [];
+  /** Timestamps of reconciliation corrections (server disagreed > epsilon). */
+  private corrections: number[] = [];
+  /** How far ahead of the render time the newest snapshot is, ms. */
+  private interpBufferMs = 0;
+  /** Approximate wire traffic, measured as JSON size of decoded messages. */
+  private bytesIn: { at: number; n: number }[] = [];
+  private bytesOut: { at: number; n: number }[] = [];
+
   constructor() {
     super('OnlineGame');
   }
@@ -109,6 +150,16 @@ export class OnlineGameScene extends GameScene {
     this.statusSub = null;
     this.codeLabel = null;
     this.sendTick = 0;
+    this.rttSamples = [];
+    this.serverPerf = null;
+    this.pings = {};
+    this.lastSnapAt = 0;
+    this.snapArrivals = [];
+    this.interpStarves = [];
+    this.corrections = [];
+    this.interpBufferMs = 0;
+    this.bytesIn = [];
+    this.bytesOut = [];
   }
 
   create(): void {
@@ -171,9 +222,30 @@ export class OnlineGameScene extends GameScene {
         this.config.mapKey = w.mapKey;
         this.welcomed = true;
       });
-      room.onMessage(MSG_SNAPSHOT, (s: Snapshot) =>
-        this.pending.push({ atMs: performance.now(), snap: s }),
-      );
+      room.onMessage(MSG_SNAPSHOT, (s: Snapshot) => {
+        const now = performance.now();
+        this.pending.push({ atMs: now, snap: s });
+        this.snapArrivals.push(now);
+        this.lastSnapAt = now;
+        this.bytesIn.push({ at: now, n: JSON.stringify(s).length });
+      });
+      room.onMessage(MSG_PONG, (p: Ping) => {
+        if (typeof p?.t !== 'number') return;
+        this.rttSamples.push(performance.now() - p.t);
+        if (this.rttSamples.length > RTT_SAMPLES) this.rttSamples.shift();
+      });
+      // RTT probe: Colyseus doesn't measure ping for us.
+      this.time.addEvent({
+        delay: PING_INTERVAL_MS,
+        loop: true,
+        startAt: PING_INTERVAL_MS - 1, // first ping right away
+        callback: () => {
+          // Report our rolling RTT so the server can share it (scoreboard).
+          const rtt = this.rttAvg();
+          const ping: Ping = { t: performance.now(), ...(rtt !== null && { rtt }) };
+          this.room?.send(MSG_PING, ping);
+        },
+      });
       room.onError((code, message) => {
         this.connectionError = message ?? `room error ${code}`;
       });
@@ -277,6 +349,8 @@ export class OnlineGameScene extends GameScene {
     this.match = last.match;
     this.match.events = matchEvents;
     this.names = last.names;
+    this.serverPerf = last.perf ?? null;
+    this.pings = last.pings ?? {};
 
     this.reconcile(last);
     if (this.worldReady) this.syncRoster();
@@ -295,8 +369,18 @@ export class OnlineGameScene extends GameScene {
     const ack = snap.acks[this.humanId] ?? -1;
     this.pendingInputs = this.pendingInputs.filter((c) => c.tick > ack);
 
+    const before = this.predicted ? { x: this.predicted.pos.x, y: this.predicted.pos.y } : null;
     this.predicted = structuredClone(serverMe);
     for (const cmd of this.pendingInputs) this.applyPredicted(cmd);
+    // net_graph: the resimulation landing away from the prediction means the
+    // server corrected us (collision, dropped input, desync).
+    if (
+      before &&
+      Math.hypot(this.predicted.pos.x - before.x, this.predicted.pos.y - before.y) >
+        CORRECTION_EPSILON_PX
+    ) {
+      this.corrections.push(performance.now());
+    }
 
     // Point the render state at the predicted player so everything downstream
     // (camera, fog, HUD) follows the responsive local copy.
@@ -318,6 +402,7 @@ export class OnlineGameScene extends GameScene {
 
     const msg: InputMessage = { cmd, viewTick: Math.round(this.viewTick) };
     this.room.send(MSG_INPUT, msg);
+    this.bytesOut.push({ at: performance.now(), n: JSON.stringify(msg).length });
     this.pendingInputs.push(cmd);
     if (this.pendingInputs.length > TICK_RATE * 2) this.pendingInputs.shift();
 
@@ -348,11 +433,14 @@ export class OnlineGameScene extends GameScene {
     if (buf.length === 0) return;
     const renderMs = performance.now() - INTERP_DELAY_MS;
 
+    this.interpBufferMs = buf[buf.length - 1].atMs - renderMs;
+
     const i1 = buf.findIndex((e) => e.atMs >= renderMs);
     let s0: BufferEntry;
     let s1: BufferEntry;
     if (i1 < 0) {
       // Starved: hold the newest snapshot.
+      this.interpStarves.push(performance.now());
       s0 = s1 = buf[buf.length - 1];
     } else if (i1 === 0) {
       s0 = s1 = buf[0];
@@ -381,6 +469,68 @@ export class OnlineGameScene extends GameScene {
       if (!a || !b) continue;
       g.pos.x = a.x + (b.x - a.x) * t;
       g.pos.y = a.y + (b.y - a.y) * t;
+    }
+  }
+
+  /** Rolling RTT average, ms; null until the first pong lands. */
+  private rttAvg(): number | null {
+    if (this.rttSamples.length === 0) return null;
+    return this.rttSamples.reduce((a, b) => a + b, 0) / this.rttSamples.length;
+  }
+
+  /** Player-facing telemetry (Phase 9.5): HUD ping + connection warnings. */
+  protected buildNet(): HudNet | null {
+    let problem: string | null = null;
+    const p = this.serverPerf;
+    if (p && p.tps > 0 && p.tps < TICK_RATE * 0.9) {
+      // Achieved TPS well under target: the server is overloaded — tell the
+      // player it's not their connection.
+      problem = 'SERVER OVERLOADED';
+    } else if (
+      this.lastSnapAt > 0 &&
+      performance.now() - this.lastSnapAt > (1000 / SNAPSHOT_RATE) * 3
+    ) {
+      problem = 'CONNECTION PROBLEM';
+    }
+    return { rttMs: this.rttAvg(), problem };
+  }
+
+  /** Scoreboard ping column: server-collected RTTs (bots have none). */
+  protected pingOf(id: string): number | null {
+    return Object.prototype.hasOwnProperty.call(this.pings, id) ? this.pings[id] : null;
+  }
+
+  /** net_graph: connection + server-health lines on the backtick overlay. */
+  protected extendDebug(): void {
+    const cutoff = performance.now() - NET_WINDOW_MS;
+    prune(this.snapArrivals, cutoff);
+    prune(this.interpStarves, cutoff);
+    prune(this.corrections, cutoff);
+    while (this.bytesIn.length > 0 && this.bytesIn[0].at < cutoff) this.bytesIn.shift();
+    while (this.bytesOut.length > 0 && this.bytesOut[0].at < cutoff) this.bytesOut.shift();
+
+    const rtt = this.rttAvg();
+    const kbps = (b: { n: number }[]): string =>
+      (b.reduce((a, x) => a + x.n, 0) / (NET_WINDOW_MS / 1000) / 1024).toFixed(1);
+
+    this.debug.setLine('net rtt', rtt === null ? 'measuring…' : `${rtt.toFixed(0)} ms`);
+    this.debug.setLine(
+      'net snap',
+      `${perSec(this.snapArrivals).toFixed(1)}/s (target ${SNAPSHOT_RATE}), ` +
+        `buffer ${this.interpBufferMs.toFixed(0)} ms, starved ${perSec(this.interpStarves).toFixed(1)}/s`,
+    );
+    this.debug.setLine(
+      'net recon',
+      `${perSec(this.corrections).toFixed(1)} corrections/s, ${this.pendingInputs.length} unacked inputs`,
+    );
+    this.debug.setLine('net traffic', `≈in ${kbps(this.bytesIn)} KB/s out ${kbps(this.bytesOut)} KB/s (json)`);
+    const p = this.serverPerf;
+    if (p) {
+      this.debug.setLine(
+        'server',
+        `tick ${p.tickMs.toFixed(2)} ms avg / ${p.tickMsMax.toFixed(1)} ms max ` +
+          `(bots ${p.botMs.toFixed(2)} ms) @ ${p.tps.toFixed(1)} tps`,
+      );
     }
   }
 

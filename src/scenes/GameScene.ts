@@ -54,6 +54,7 @@ import type {
   Banner,
   BuyMenuItem,
   HudData,
+  HudNet,
   HudSource,
   MinimapData,
   MinimapDot,
@@ -119,7 +120,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   protected ctIds: string[] = [];
   /** Bombsite centers snapped to walkable tiles (bot plant/defend anchors). */
   private siteAnchors: Vec2[] = [];
-  private debug!: DebugOverlay;
+  protected debug!: DebugOverlay;
   private ui!: UIScene;
   private bombGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
@@ -399,7 +400,19 @@ export class GameScene extends Phaser.Scene implements HudSource {
       spectating: subjectId !== this.humanId ? this.names[subjectId] : null,
       buyMenu: canBuy(this.match) && me.hp > 0 ? this.buildBuyMenu() : null,
       scoreboard: this.buildScoreboard(),
+      net: this.buildNet(),
     };
+  }
+
+  /** Connection telemetry for the HUD — offline games have none. */
+  protected buildNet(): HudNet | null {
+    return null;
+  }
+
+  /** Scoreboard RTT for a player — only OnlineGameScene knows any. */
+  protected pingOf(id: string): number | null {
+    void id;
+    return null;
   }
 
   buy(item: BuyItem): void {
@@ -481,6 +494,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
         deaths: s.deaths,
         money: s.money,
         alive: p.hp > 0,
+        ping: this.pingOf(id),
       };
     });
   }
@@ -864,9 +878,13 @@ export class GameScene extends Phaser.Scene implements HudSource {
       'vision',
       `${this.vision.rayCount} rays, ${this.vision.fullCircle ? '360°' : 'cone'} (F5)`,
     );
+    this.extendDebug();
     this.debug.update();
     if (this.debug.isVisible) this.drawDebug(player);
   }
+
+  /** Subclass hook: add extra overlay lines (OnlineGameScene's net_graph). */
+  protected extendDebug(): void {}
 
   /**
    * Debug layer: collision grid, wall segments, bombsites, spawns, player

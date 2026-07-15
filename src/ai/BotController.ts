@@ -14,6 +14,7 @@ import {
   BOT_FOOTSTEP_MIN_SPEED,
   BOT_GUARD_TURN_RATE,
   BOT_REPATH_SEC,
+  BOT_SCAN_EVERY_TICKS,
   BOT_SEARCH_SEC,
   BOT_SEARCH_TURN_RATE,
   BOT_STRAFE_MAX_SEC,
@@ -70,6 +71,10 @@ export class BotController {
   private guardAngle = 0;
   /** Seconds of flashbang blindness remaining. */
   private blindLeft = 0;
+  /** Ticks until the next LOS raycast scan (staggered per bot, Phase 9.5). */
+  private scanCountdown = 0;
+  /** Enemy sighted by the last scan; tracked between scans while alive. */
+  private visibleTargetId: string | null = null;
 
   private rngState: number;
 
@@ -97,6 +102,8 @@ export class BotController {
     this.map = map;
     this.roamPoints = roamPoints;
     this.rngState = seed | 0 || 1;
+    // Offset the scan cycle per bot so they don't all raycast on the same tick.
+    this.scanCountdown = (seed >>> 0) % BOT_SCAN_EVERY_TICKS;
   }
 
   /** Set who this bot fights (rosters may not exist yet at construction). */
@@ -132,6 +139,7 @@ export class BotController {
     this.repathTimer = 0;
     this.stuckTimer = 0;
     this.lastKnown = null;
+    this.visibleTargetId = null;
     this.visibleTime = 0;
     this.reactionLeft = 0;
     this.burstLeft = 0;
@@ -194,31 +202,48 @@ export class BotController {
   /** Nearest visible enemy (bot vision = same cone/LOS rules as the player). */
   private perceive(gameState: GameState, me: PlayerState, dt: number): PlayerState | null {
     this.blindLeft = Math.max(0, this.blindLeft - dt);
-    // Smoke blocks bot sight exactly like it blocks the player's fog.
-    const segments =
-      gameState.smokes.length > 0
-        ? [...this.map.segments, ...smokeSegments(gameState.smokes)]
-        : this.map.segments;
+    if (this.blindLeft > 0) this.visibleTargetId = null; // flashed: ears only
 
-    let target: PlayerState | null = null;
-    let bestDist = Infinity;
+    // Hearing is cheap (no raycasts) — runs every tick.
     for (const id of this.enemyIds) {
       const enemy = gameState.players[id];
       if (!enemy || enemy.hp <= 0) continue;
       const dist = Math.hypot(enemy.pos.x - me.pos.x, enemy.pos.y - me.pos.y);
-
-      // Hearing: running footsteps give away position without LOS.
       const speed = Math.hypot(enemy.vel.x, enemy.vel.y);
       if (speed >= BOT_FOOTSTEP_MIN_SPEED && dist <= this.profile.hearingRangePx) {
         this.noticeEnemyAt(enemy.pos);
       }
+    }
 
-      if (this.blindLeft > 0) continue; // flashed: ears only
-      if (dist < bestDist && canSee(me, enemy.pos, segments)) {
-        target = enemy;
-        bestDist = dist;
+    // The LOS raycast scan is the expensive part: run it every Nth tick
+    // (offset per bot); between scans keep tracking the last sighted enemy.
+    if (--this.scanCountdown <= 0) {
+      this.scanCountdown = BOT_SCAN_EVERY_TICKS;
+      this.visibleTargetId = null;
+      if (this.blindLeft <= 0) {
+        // Smoke blocks bot sight exactly like it blocks the player's fog.
+        const segments =
+          gameState.smokes.length > 0
+            ? [...this.map.segments, ...smokeSegments(gameState.smokes)]
+            : this.map.segments;
+        let bestDist = Infinity;
+        for (const id of this.enemyIds) {
+          const enemy = gameState.players[id];
+          if (!enemy || enemy.hp <= 0) continue;
+          const dist = Math.hypot(enemy.pos.x - me.pos.x, enemy.pos.y - me.pos.y);
+          if (dist < bestDist && canSee(me, enemy.pos, segments)) {
+            this.visibleTargetId = id;
+            bestDist = dist;
+          }
+        }
       }
     }
+
+    let target: PlayerState | null = this.visibleTargetId
+      ? (gameState.players[this.visibleTargetId] ?? null)
+      : null;
+    if (target && target.hp <= 0) target = null;
+    if (!target) this.visibleTargetId = null;
 
     if (target) {
       if (this.visibleTime === 0) this.reactionLeft = this.profile.reactionSec;
