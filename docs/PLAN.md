@@ -210,7 +210,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 ### 9c. Meta
 
-- [x] Lobby (`LobbyScene`): Quick Play (public matchmaking), Host Private (share code), Join by Code. A browsable live room list needs a Colyseus `LobbyRoom` — deferred to Phase 10 (see `docs/DEPLOY.md`).
+- [x] Lobby (`LobbyScene`): Quick Play (public matchmaking), Host Private (share code), Join by Code. The browsable live room list (Colyseus `LobbyRoom`) was deferred to Phase 10 and has since been built — see the Phase 10 backlog.
 - [x] Server-side validation: input intent clamped ([-1,1] move, uint32 buttons), buy legality via `tryBuy` (phase/team/money) — hardened against prototype-key injection (`__proto__`/`toString`) with an own-property check. Speed/fire-rate can't be forged since the server owns the sim.
 - [x] Fill empty slots with bots: shared `BotController` + `assignBotObjectives` (moved to `src/ai/`, runs headless on the server). Teams kept at `TEAM_SIZE`; humans replace bots on join, bots backfill on leave.
 - [x] Deploy: `Dockerfile` (server-only, type-stripping, no build step), `fly.toml`, `docs/DEPLOY.md` (Fly/Railway/VPS + Cloudflare Pages, `VITE_SERVER_URL`, wss, CORS).
@@ -264,7 +264,7 @@ because of the connection, the server tier, or the code.
 
 ## Phase 10 — Post-launch niceties (backlog)
 
-Browsable live room list in the lobby (needs a Colyseus `LobbyRoom` — deferred from Phase 9c) · spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
+~~Browsable live room list in the lobby~~ — **done (2026-07):** built-in Colyseus `LobbyRoom` defined in `server/index.ts`; MatchRoom's existing metadata (name/map/humans/capacity/phase/round, `RoomMetadata` in `protocol.ts`) is pushed to subscribers via `updateLobby` on every `publishMetadata`. LobbyScene shows a live OPEN MATCHES panel (updates in place as rooms appear/fill/close; full rooms grayed; click to join; private rooms stay hidden). Additive change — no protocol bump. Still open: spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
 
 **2.5D look (worth a prototype):** keep the top-down camera and the 2D sim exactly as-is, but render walls with fake height — floor footprint + extruded side faces shearing away from the camera center (GTA1/Hotline Miami style), plus drop shadows under players. Pure rendering change confined to `MapLoader`/the render layer: world x/y still maps straight to screen x/y, so aiming, fog, and the minimap keep working untouched. Prototype on one map before committing; do it after the Phase 9.5 replay tests exist to prove the sim stayed untouched.
 

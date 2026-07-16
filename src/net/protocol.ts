@@ -10,6 +10,26 @@ import type { MatchState } from '../match/MatchState.ts';
 export const ROOM_NAME = 'match';
 
 /**
+ * The built-in Colyseus LobbyRoom streaming the public room list (Phase 10
+ * room browser). Not part of the game wire format — its messages ("rooms",
+ * "+", "-") are Colyseus's own.
+ */
+export const LOBBY_ROOM_NAME = 'lobby';
+
+/** Metadata every MatchRoom publishes; the lobby's room browser renders it. */
+export interface RoomMetadata {
+  /** Room display name (the creator's player name or "Match"). */
+  name: string;
+  mapKey: string;
+  /** Connected humans (total occupancy incl. bots is always capacity). */
+  humans: number;
+  /** Human seats (maxClients). */
+  capacity: number;
+  phase: string;
+  round: number;
+}
+
+/**
  * Wire-format version. The deployed client (CDN) and server ship
  * independently — bump this on ANY breaking change to the messages or
  * embedded state shapes so stale clients get a clear "refresh" error

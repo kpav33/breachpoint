@@ -121,8 +121,8 @@ Two ways this bites you:
 
 ## What's NOT covered (Phase 10 backlog)
 
-- A browsable **live public room list** (needs a Colyseus `LobbyRoom`). Today
-  the lobby offers Quick Play (matchmaking), Host Private (share code), and
-  Join by Code — no scrolling server browser.
-- Multi-instance scaling (Redis presence + driver).
+- Multi-instance scaling (Redis presence + driver). Note: the lobby's room
+  browser (built-in Colyseus `LobbyRoom`, defined in `server/index.ts`)
+  subscribes to the local matchmaker — with multiple instances it needs the
+  Redis driver to see rooms across instances.
 - Persistence / accounts / matchmaking rating.

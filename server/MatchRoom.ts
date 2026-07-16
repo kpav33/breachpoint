@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Room } from 'colyseus';
+import { Room, updateLobby } from 'colyseus';
 import type { Client } from 'colyseus';
 
 import { Buttons } from '../src/core/types.ts';
@@ -58,6 +58,7 @@ import type {
   InputMessage,
   JoinOptions,
   Ping,
+  RoomMetadata,
   ServerPerf,
   Snapshot,
   Welcome,
@@ -363,16 +364,19 @@ export class MatchRoom extends Room {
     return t <= ct ? 'T' : 'CT';
   }
 
-  /** Room-list metadata (drives the client lobby). */
+  /** Room-list metadata (drives the client lobby's room browser). */
   private publishMetadata(): void {
-    void this.setMetadata({
+    const meta: RoomMetadata = {
       name: this.matchName,
       mapKey: this.mapKey,
       humans: this.humanCount(),
       capacity: this.maxClients,
       phase: this.match.phase,
       round: this.match.round,
-    });
+    };
+    // setMetadata alone doesn't notify LobbyRoom subscribers — join/leave/
+    // dispose do, but metadata-only changes (round advancing) need the push.
+    void this.setMetadata(meta).then(() => updateLobby(this));
   }
 
   private onInput(client: Client, msg: unknown): void {

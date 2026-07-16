@@ -3,7 +3,7 @@
 import { Client } from 'colyseus.js';
 import type { Room } from 'colyseus.js';
 import { DEFAULT_SERVER_PORT } from '../core/config.ts';
-import { PROTOCOL_VERSION, ROOM_NAME } from './protocol.ts';
+import { LOBBY_ROOM_NAME, PROTOCOL_VERSION, ROOM_NAME } from './protocol.ts';
 import type { JoinOptions } from './protocol.ts';
 
 export function serverUrl(): string {
@@ -35,6 +35,15 @@ export function hostPrivate(options: JoinOptions): Promise<Room> {
 /** Join a specific room by its id / share code. */
 export function joinByCode(roomId: string, options: JoinOptions): Promise<Room> {
   return getClient().joinById(roomId, withProtocol(options));
+}
+
+/**
+ * Subscribe to the public room list (Colyseus LobbyRoom). Messages:
+ * "rooms" (full list on join), "+" ([roomId, listing]) upserts, "-"
+ * (roomId) removals. Leave the room to unsubscribe.
+ */
+export function joinLobby(): Promise<Room> {
+  return getClient().joinOrCreate(LOBBY_ROOM_NAME);
 }
 
 /** Re-attach to a held seat using a token from a previous connection. */
