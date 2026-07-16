@@ -111,7 +111,104 @@ function layoutSplit() {
   };
 }
 
-const LAYOUTS = { de_yard: layoutYard, de_split: layoutSplit };
+// Cross: contested central plaza, sites on the NW/SE diagonal, spawns on the
+// NE/SW diagonal. Four perimeter corridors ring the plaza; every rotate is a
+// choice between cutting through the open middle or taking the long safe ring.
+function layoutCross() {
+  const { solid, carve, fill } = makeCanvas();
+  carve(4, 4, 15, 13); //   A site room (NW)
+  carve(44, 26, 55, 35); // B site room (SE)
+  carve(44, 4, 55, 11); //  CT spawn (NE)
+  carve(4, 28, 15, 35); //  T spawn (SW)
+  carve(20, 12, 39, 27); // central plaza
+  carve(15, 6, 44, 8); //   top corridor: A ↔ CT
+  carve(15, 31, 44, 33); // bottom corridor: T ↔ B
+  carve(6, 13, 8, 28); //   west corridor: A ↔ T
+  carve(51, 11, 53, 26); // east corridor: CT ↔ B
+  carve(28, 8, 31, 12); //  top corridor → plaza mouth
+  carve(28, 27, 31, 31); // plaza → bottom corridor mouth
+  carve(15, 10, 20, 12); // A room → plaza mouth
+  carve(39, 26, 44, 29); // plaza → B room mouth
+  carve(7, 24, 20, 26); //  west corridor → plaza mouth
+  carve(39, 13, 52, 15); // plaza → east corridor mouth
+
+  fill(8, 7, 9, 8); //      A site crate
+  fill(50, 31, 51, 32); //  B site crate
+  fill(24, 16, 25, 17); //  plaza crate NW
+  fill(34, 22, 35, 23); //  plaza crate SE
+  fill(28, 19, 31, 20); //  plaza central low wall
+  fill(46, 9, 47, 10); //   CT spawn crate
+  fill(13, 29, 14, 30); //  T spawn crate
+
+  return {
+    solid,
+    bombsiteTiles: [
+      { name: 'A', x0: 6, y0: 6, x1: 11, y1: 10 },
+      { name: 'B', x0: 48, y0: 29, x1: 53, y1: 33 },
+    ],
+    spawnsT: [6, 8, 10, 12, 14].map((x) => ({ x, y: 33 })),
+    spawnsCT: [46, 48, 50, 52, 54].map((x) => ({ x, y: 6 })),
+  };
+}
+
+// Docks: east–west flow. Both sites stacked on the east flank (A north pier,
+// B south warehouse) with CT between them; T pushes from the west down three
+// horizontal lanes (north, mid, south) joined by two vertical connectors.
+function layoutDocks() {
+  const { solid, carve, fill } = makeCanvas();
+  carve(3, 16, 10, 24); //  T spawn (west mid)
+  carve(49, 16, 56, 24); // CT spawn (east mid)
+  carve(40, 3, 55, 12); //  A site room (NE)
+  carve(40, 28, 55, 36); // B site room (SE)
+  carve(3, 5, 40, 8); //    north lane → A
+  carve(3, 32, 40, 35); //  south lane → B
+  carve(10, 18, 49, 22); // mid lane: T ↔ CT
+  carve(5, 8, 8, 16); //    T spawn ↑ north lane
+  carve(5, 24, 8, 32); //   T spawn ↓ south lane
+  carve(50, 12, 53, 16); // CT ↑ A site
+  carve(50, 24, 53, 28); // CT ↓ B site
+  carve(30, 8, 33, 18); //  north lane ↕ mid
+  carve(30, 22, 33, 32); // mid ↕ south lane
+
+  fill(20, 18, 21, 19); //  mid crate (north wall side)
+  fill(38, 21, 39, 22); //  mid crate (south wall side)
+  fill(22, 6, 23, 7); //    north lane crate
+  fill(34, 6, 35, 7); //    north lane crate 2 (breaks the long sightline)
+  fill(22, 33, 23, 34); //  south lane crate
+  fill(48, 7, 49, 8); //    A site crate
+  fill(43, 10, 43, 11); //  A site pillar
+  fill(48, 31, 49, 32); //  B site crate
+  fill(43, 29, 43, 30); //  B site pillar
+
+  return {
+    solid,
+    bombsiteTiles: [
+      { name: 'A', x0: 46, y0: 5, x1: 52, y1: 10 },
+      { name: 'B', x0: 46, y0: 30, x1: 52, y1: 35 },
+    ],
+    spawnsT: [
+      { x: 5, y: 18 },
+      { x: 5, y: 20 },
+      { x: 5, y: 22 },
+      { x: 8, y: 19 },
+      { x: 8, y: 21 },
+    ],
+    spawnsCT: [
+      { x: 54, y: 18 },
+      { x: 54, y: 20 },
+      { x: 54, y: 22 },
+      { x: 51, y: 19 },
+      { x: 51, y: 21 },
+    ],
+  };
+}
+
+const LAYOUTS = {
+  de_yard: layoutYard,
+  de_split: layoutSplit,
+  de_cross: layoutCross,
+  de_docks: layoutDocks,
+};
 
 function writeMap(name, layout) {
   const { solid, bombsiteTiles, spawnsT, spawnsCT } = layout();

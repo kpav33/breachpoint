@@ -5,7 +5,7 @@ import { WORLD } from '../theme';
 
 export const MAP_KEY = 'de_yard';
 /** Playable maps — every key has `assets/maps/<key>.json` (same tileset). */
-export const MAPS = ['de_yard', 'de_split'];
+export const MAPS = ['de_yard', 'de_split', 'de_cross', 'de_docks'];
 export const TILESET_KEY = 'tiles';
 
 export interface LoadedMap {

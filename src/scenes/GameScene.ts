@@ -312,8 +312,11 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
     this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle, this.state.smokes);
     this.cullEnemies(subjectId);
-    const cam = this.cameras.main;
-    this.elevation.update(cam.midPoint, cam.worldView);
+    // Shear around the followed player, not the camera midpoint: they only
+    // differ when the camera is clamped at map bounds, and centering on the
+    // camera there makes nearby wall tops overhang (and hide) your own
+    // player standing beside them.
+    this.elevation.update({ x: rendered.x, y: rendered.y }, this.cameras.main.worldView);
 
     this.updateDebug(this.state.players[this.humanId]);
   }

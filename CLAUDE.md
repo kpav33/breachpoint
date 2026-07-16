@@ -33,7 +33,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 - `npm run lint` — ESLint (includes the core/ and server/ import restrictions)
 - `npm test` — headless match-logic tests (`tests/*.test.mjs`, plain node runner, no Phaser)
 - Deploy: `Dockerfile` + `fly.toml` ship the server; see `docs/DEPLOY.md` (server on Fly/Railway/VPS, client on a CDN)
-- `node tools/generate-map.mjs` — regenerate all maps (`de_yard.json`, `de_split.json`) + `tiles.png` from the layouts defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts; new maps also go in `MAPS` in `MapLoader.ts`)
+- `node tools/generate-map.mjs` — regenerate all maps (`de_yard`, `de_split`, `de_cross`, `de_docks`) + `tiles.png` from the layouts defined in the script (maps are Tiled-format JSON, editable in Tiled once real authoring starts; new maps also go in `MAPS` in `MapLoader.ts`)
 - `node tools/generate-audio.mjs` — regenerate the placeholder sound set in `public/assets/audio/` (synthesized WAVs; swap files for real assets without code changes)
 <!-- Update this section as commands are added (tests, typecheck, etc.) -->
 

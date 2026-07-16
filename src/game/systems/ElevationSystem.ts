@@ -65,7 +65,12 @@ export class ElevationSystem {
     this.flatWalls = flatWalls;
   }
 
-  /** Redraw for this frame's camera. `view` is the camera's world rect. */
+  /**
+   * Redraw for this frame. `center` is the perspective origin — the followed
+   * player's render position (NOT the camera midpoint: when the camera is
+   * clamped at map bounds those differ, and camera-centered shear makes
+   * nearby wall tops overhang the player). `view` is the camera world rect.
+   */
   update(center: Vec2, view: Phaser.Geom.Rectangle): void {
     this.flatWalls?.setVisible(!this.enabled);
     this.gfx.clear();
