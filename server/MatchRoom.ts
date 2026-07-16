@@ -51,6 +51,7 @@ import {
   MSG_PONG,
   MSG_SNAPSHOT,
   MSG_WELCOME,
+  PROTOCOL_VERSION,
 } from '../src/net/protocol.ts';
 import type {
   ChatMessage,
@@ -183,6 +184,14 @@ export class MatchRoom extends Room {
   }
 
   onJoin(client: Client, options: JoinOptions): void {
+    // Version handshake: client (CDN) and server deploy independently — a
+    // stale client gets a clear error instead of silent wire-format desyncs.
+    // (Reconnections skip onJoin, so held seats are unaffected.)
+    if (options.protocol !== PROTOCOL_VERSION) {
+      throw new Error(
+        `client/server version mismatch (client ${options.protocol ?? 'none'}, server ${PROTOCOL_VERSION}) — refresh the page`,
+      );
+    }
     const id = client.sessionId;
     const team = this.smallerHumanTeam();
     // Take a bot's slot so the team stays at target size.

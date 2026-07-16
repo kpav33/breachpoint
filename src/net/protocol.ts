@@ -9,6 +9,14 @@ import type { MatchState } from '../match/MatchState.ts';
 /** Room name registered on the server and joined by clients. */
 export const ROOM_NAME = 'match';
 
+/**
+ * Wire-format version. The deployed client (CDN) and server ship
+ * independently — bump this on ANY breaking change to the messages or
+ * embedded state shapes so stale clients get a clear "refresh" error
+ * instead of confusing desyncs.
+ */
+export const PROTOCOL_VERSION = 2;
+
 // Client → server messages.
 /** Payload: InputMessage — one per client tick. */
 export const MSG_INPUT = 'input';
@@ -31,6 +39,8 @@ export const MSG_CHAT_MSG = 'chat_msg';
 
 /** joinOrCreate options; only the room creator's values take effect. */
 export interface JoinOptions {
+  /** Client's PROTOCOL_VERSION — the server rejects mismatches on join. */
+  protocol?: number;
   mapKey?: string;
   roundsToWin?: number;
   /** Player display name (join) and, for the creator, the room's name. */

@@ -3,7 +3,7 @@
 import { Client } from 'colyseus.js';
 import type { Room } from 'colyseus.js';
 import { DEFAULT_SERVER_PORT } from '../core/config.ts';
-import { ROOM_NAME } from './protocol.ts';
+import { PROTOCOL_VERSION, ROOM_NAME } from './protocol.ts';
 import type { JoinOptions } from './protocol.ts';
 
 export function serverUrl(): string {
@@ -15,21 +15,26 @@ function getClient(): Client {
   return (client ??= new Client(serverUrl()));
 }
 
+/** Every join carries the wire-format version for the server handshake. */
+function withProtocol(options: JoinOptions): JoinOptions {
+  return { ...options, protocol: PROTOCOL_VERSION };
+}
+
 /** Public matchmaking: join an open public room or create one (creator's
  *  options pick map/rounds). This is the "room browser" — the server places
  *  you into a room with a free slot or spins a fresh one up. */
 export function quickPlay(options: JoinOptions): Promise<Room> {
-  return getClient().joinOrCreate(ROOM_NAME, options);
+  return getClient().joinOrCreate(ROOM_NAME, withProtocol(options));
 }
 
 /** Host a private room (hidden from matchmaking; share `room.roomId` to invite). */
 export function hostPrivate(options: JoinOptions): Promise<Room> {
-  return getClient().create(ROOM_NAME, { ...options, private: true });
+  return getClient().create(ROOM_NAME, { ...withProtocol(options), private: true });
 }
 
 /** Join a specific room by its id / share code. */
 export function joinByCode(roomId: string, options: JoinOptions): Promise<Room> {
-  return getClient().joinById(roomId, options);
+  return getClient().joinById(roomId, withProtocol(options));
 }
 
 /** Re-attach to a held seat using a token from a previous connection. */
