@@ -7,12 +7,15 @@ import type {
   GameState,
   GrenadeType,
   InputCommand,
+  PlayerState,
   SimEvent,
   Team,
   Vec2,
   WeaponId,
+  WeaponSlot,
 } from '../core/types.ts';
 import type { MapData } from '../core/map.ts';
+import { isWall } from '../core/collision.ts';
 import { damagePlayer, nextRand, respawnPlayer } from '../core/simulation.ts';
 import { defaultLoadout, givePrimary, makeSlot } from '../core/weapons.ts';
 import {
@@ -39,6 +42,9 @@ import {
   ROUND_TIME_SEC,
   WARMUP_TIME_SEC,
   WEAPONS,
+  WEAPON_DROP_TOSS_PX,
+  WEAPON_PICKUP_RANGE_PX,
+  WEAPON_SWITCH_TIME,
   WIN_REWARD,
 } from '../core/config.ts';
 
@@ -51,6 +57,13 @@ export interface PlayerMatchStats {
   deaths: number;
   money: number;
   hasDefuseKit: boolean;
+}
+
+/** A gun lying on the ground (death drop or manual G drop), ammo included. */
+export interface DroppedWeapon {
+  id: number;
+  slot: WeaponSlot;
+  pos: Vec2;
 }
 
 export interface BombState {
@@ -94,6 +107,9 @@ export interface MatchState {
   lossStreak: Record<Team, number>;
   stats: Record<string, PlayerMatchStats>;
   bomb: BombState;
+  /** Guns on the ground this round (cleared at round start). */
+  droppedWeapons: DroppedWeapon[];
+  nextDropId: number;
   /** Which bombsite the T side is hitting this round (index into map.bombsites). */
   targetSite: number;
   lastRound: { winner: Team; reason: RoundEndReason } | null;
@@ -133,6 +149,8 @@ export function createMatchState(
     lossStreak: { T: 0, CT: 0 },
     stats,
     bomb: emptyBomb(),
+    droppedWeapons: [],
+    nextDropId: 1,
     targetSite: 0,
     lastRound: null,
     pendingPayout: null,
@@ -299,6 +317,9 @@ function processDeaths(match: MatchState, game: GameState, tickEvents: SimEvent[
     }
     match.events.push({ type: 'kill', killerId: ev.killerId, victimId: ev.playerId });
 
+    // The victim's best gun hits the ground where they fell (eco scavenging).
+    if (victim) dropBestWeapon(match, victim, victim.pos);
+
     if (match.bomb.carrierId === ev.playerId && victim) {
       match.bomb.carrierId = null;
       match.bomb.droppedAt = { x: victim.pos.x, y: victim.pos.y };
@@ -317,6 +338,9 @@ function updateLive(
   dt: number,
 ): void {
   const bomb = match.bomb;
+
+  updateManualDrops(match, game, cmds, map);
+  updateWeaponPickups(match, game);
 
   if (bomb.plantedAt) {
     bomb.timeLeft -= dt;
@@ -429,6 +453,78 @@ function updateDefuse(
   }
 }
 
+/** The knife (slot 0) and the default pistol never drop. */
+function droppableSlotIndex(p: PlayerState): number {
+  if (p.slots[2]) return 2;
+  if (p.slots[1] && p.slots[1].weaponId !== 'pistol') return 1;
+  return -1;
+}
+
+/** Take the slot out of the player's loadout and put it on the ground. */
+function dropSlot(match: MatchState, p: PlayerState, slotIndex: number, at: Vec2): void {
+  const slot = p.slots[slotIndex];
+  match.droppedWeapons.push({ id: match.nextDropId++, slot: { ...slot }, pos: { x: at.x, y: at.y } });
+  if (slotIndex === 2) {
+    p.slots.length = 2;
+  } else {
+    p.slots[1] = makeSlot('pistol');
+  }
+  if (p.activeSlot >= p.slots.length) p.activeSlot = 1;
+  p.reloadRemaining = 0;
+}
+
+/** On death: the most valuable gun (primary, else upgraded secondary) drops. */
+function dropBestWeapon(match: MatchState, p: PlayerState, at: Vec2): void {
+  const idx = droppableSlotIndex(p);
+  if (idx >= 0) dropSlot(match, p, idx, at);
+}
+
+/** G drops the active weapon, tossed ahead so the dropper walks off it. */
+function updateManualDrops(
+  match: MatchState,
+  game: GameState,
+  cmds: Record<string, InputCommand>,
+  map: MapData,
+): void {
+  for (const p of Object.values(game.players)) {
+    if (p.hp <= 0) continue;
+    const cmd = cmds[p.id];
+    if (!cmd || (cmd.buttons & Buttons.Drop) === 0) continue;
+    // Only the active weapon drops, and only if it's droppable.
+    if (p.activeSlot !== droppableSlotIndex(p)) continue;
+
+    let at: Vec2 = {
+      x: p.pos.x + Math.cos(p.angle) * WEAPON_DROP_TOSS_PX,
+      y: p.pos.y + Math.sin(p.angle) * WEAPON_DROP_TOSS_PX,
+    };
+    const ts = map.grid.tileSize;
+    if (isWall(map.grid, Math.floor(at.x / ts), Math.floor(at.y / ts))) at = { ...p.pos };
+    dropSlot(match, p, p.activeSlot, at);
+    // Deliberate swap to the next weapon — same lockout as a manual switch.
+    p.fireCooldown = Math.max(p.fireCooldown, WEAPON_SWITCH_TIME);
+  }
+}
+
+/** Walking over a dropped gun picks it up when the matching slot is free. */
+function updateWeaponPickups(match: MatchState, game: GameState): void {
+  if (match.droppedWeapons.length === 0) return;
+  for (const p of Object.values(game.players)) {
+    if (p.hp <= 0) continue;
+    for (let i = 0; i < match.droppedWeapons.length; i++) {
+      const drop = match.droppedWeapons[i];
+      const def = WEAPONS[drop.slot.weaponId];
+      // "Slot free" = no primary, or still carrying the default pistol.
+      const canTake =
+        def.slotIndex === 2 ? !p.slots[2] : def.slotIndex === 1 && p.slots[1].weaponId === 'pistol';
+      if (!canTake) continue;
+      if (Math.hypot(p.pos.x - drop.pos.x, p.pos.y - drop.pos.y) > WEAPON_PICKUP_RANGE_PX) continue;
+      p.slots[def.slotIndex] = { ...drop.slot };
+      match.droppedWeapons.splice(i, 1);
+      i--;
+    }
+  }
+}
+
 /** A living T walking over the dropped bomb picks it up. */
 function updatePickup(match: MatchState, game: GameState): void {
   const bomb = match.bomb;
@@ -524,6 +620,7 @@ function startRound(match: MatchState, game: GameState, map: MapData): void {
   match.phase = 'buy';
   match.phaseTimeLeft = BUY_TIME_SEC;
   match.bomb = emptyBomb();
+  match.droppedWeapons = [];
 
   const spawnIdx: Record<Team, number> = { T: 0, CT: 0 };
   const ts: string[] = [];

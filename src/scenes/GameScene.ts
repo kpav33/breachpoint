@@ -66,6 +66,7 @@ import {
   BOMB_CSS,
   BOMB_PLANT,
   DANGER_NUM,
+  DROPPED_GUN,
   FACTION,
   FACTION_CSS,
   HIT,
@@ -760,6 +761,15 @@ export class GameScene extends Phaser.Scene implements HudSource {
     const g = this.bombGfx;
     g.clear();
     this.drawSpawnZones(g);
+    // Dropped guns: small neutral gun glyph (body + grip), dark grounding line.
+    for (const drop of this.match.droppedWeapons) {
+      const { x, y } = drop.pos;
+      g.fillStyle(DROPPED_GUN, 1);
+      g.fillRect(x - 7, y - 3, 14, 4);
+      g.fillRect(x - 3, y + 1, 4, 4);
+      g.lineStyle(1, 0x0d1014, 1);
+      g.strokeRect(x - 7, y - 3, 14, 4);
+    }
     if (bomb.droppedAt) {
       g.fillStyle(BOMB, 1);
       g.fillRect(bomb.droppedAt.x - 5, bomb.droppedAt.y - 4, 10, 8);

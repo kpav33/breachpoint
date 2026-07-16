@@ -96,6 +96,10 @@ export const BOMB_DEFUSE_KIT_TIME_SEC = 5;
 export const BOMB_DEFUSE_RANGE_PX = 60;
 /** Walking over a dropped bomb within this range picks it up (T only). */
 export const BOMB_PICKUP_RANGE_PX = 32;
+/** Walking over a dropped weapon within this range picks it up. */
+export const WEAPON_PICKUP_RANGE_PX = 32;
+/** A manually dropped weapon lands this far ahead (so you don't re-grab it). */
+export const WEAPON_DROP_TOSS_PX = 40;
 /** Explosion: full damage at the bomb, linear falloff to zero at the edge. */
 export const BOMB_DAMAGE = 500;
 export const BOMB_RADIUS_PX = 550;

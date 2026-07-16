@@ -243,7 +243,7 @@ because of the connection, the server tier, or the code.
 ### CS-staple gameplay gaps (audited 2026-07 — these are absent from the code)
 
 - [x] **Halftime side swap:** no team-swap logic exists in `src/match/` — a first-to-13 match plays every round on the same side, which is unfair on asymmetric defuse maps. Swap teams (and reset economy) after round 12. Biggest gameplay gap. Note: adding halftime makes a 12–12 draw possible — decide draw vs simple overtime then (today first-to-13 with no swap can't draw) — **done:** `swapSides()` in MatchState fires after roundsToWin−1 rounds (scores follow the players, economy/streaks/gear reset, `halftime` event → SWITCHING SIDES banner + roster/view rebuild on both client and server). 12–12 (generally (rtw−1)-all) is a **draw** (`match_end` with `winner: null`, "MATCH DRAWN" banner); overtime stays a backlog idea
-- [ ] **Weapon drop / pickup:** only the *bomb* drops on death (`MatchState`). Guns should drop as world entities and be picked up by walking over them (+ manual drop key, G) — eco-round scavenging and passing a teammate a rifle are core CS economy moves
+- [x] **Weapon drop / pickup:** only the *bomb* drops on death (`MatchState`). Guns should drop as world entities and be picked up by walking over them (+ manual drop key, G) — eco-round scavenging and passing a teammate a rifle are core CS economy moves — **done:** `DroppedWeapon` entities in MatchState (ammo preserved); death drops the best gun, G drops the active one (tossed ~40 px ahead, wall-checked), walk-over pickup when the slot is free, floor cleared at round start. **Key change: HE grenade moved G → X** to free G for drop (proper rebinding comes with the keybind-settings item)
 - [ ] **Damage direction indicator** (carried over from Phase 5 — still the only unbuilt Phase 5 item)
 - [ ] **Mouse sensitivity + keybind settings** (carried over from Phase 8 — settings panel only has volume and bot difficulty)
 
@@ -254,7 +254,7 @@ because of the connection, the server tier, or the code.
 
 ### Hardening
 
-- [ ] **Tests for `src/core/` + `src/match/`** (vitest — currently there are none): collision resolution, raycast intersections, spread/damage falloff, `tryBuy` incl. the `__proto__` injection case, economy math, bomb timing. This is the code both client and server share — exactly where a regression silently breaks multiplayer fairness
+- [ ] **Tests for `src/core/` + `src/match/`** (vitest — currently there are none): collision resolution, raycast intersections, spread/damage falloff, `tryBuy` incl. the `__proto__` injection case, economy math, bomb timing. This is the code both client and server share — exactly where a regression silently breaks multiplayer fairness. *Started:* `tests/*.test.mjs` (halftime/draw, weapon drop/pickup) run via `npm test` on the plain node runner — port/extend these when vitest lands
 - [ ] **Replay-based regression tests:** record an input stream, replay it through the deterministic sim, assert the final state (hash). Doubles as groundwork for Phase 10 demo/replay recording
 - [ ] **Real audio assets:** replace the synthesized WAVs in `public/assets/audio/` (Kenney.nl CC0) — same filenames, no code changes; overdue per the Phase 5 note
 - [ ] **Protocol version handshake:** add a `PROTOCOL_VERSION` constant to `protocol.ts`, sent in join options and checked in `onAuth`/`onJoin` — the deployed client (Netlify) and server (Render) ship independently, so a wire-format change silently breaks live clients with confusing symptoms instead of a clear "please refresh" error

@@ -83,6 +83,8 @@ export const BOMB_CSS = '#ffb020';
 export const BOMB_PLANT = 0xff4d4d;
 export const BOMB_PLANT_CSS = '#ff4d4d';
 export const TRACER = 0xffe9a0;
+/** Dropped weapon lying on the ground. */
+export const DROPPED_GUN = 0x8a97a5;
 /** Smoke-grenade cloud fill (sits between players and the fog layer). */
 export const SMOKE_CLOUD = 0x11161c;
 export const HIT = 0xff5544;

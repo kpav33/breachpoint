@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "server": "node --experimental-strip-types server/index.ts",
     "start": "node --experimental-strip-types server/index.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --experimental-strip-types --test 'tests/*.test.mjs'"
   },
   "dependencies": {
     "colyseus": "^0.16.5",

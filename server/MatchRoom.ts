@@ -57,7 +57,8 @@ const ONE_SHOT_BUTTONS =
   Buttons.PrevWeapon |
   Buttons.ThrowHE |
   Buttons.ThrowFlash |
-  Buttons.ThrowSmoke;
+  Buttons.ThrowSmoke |
+  Buttons.Drop;
 
 function loadMapData(mapKey: string): MapData {
   const file = join(MAPS_DIR, `${mapKey}.json`);

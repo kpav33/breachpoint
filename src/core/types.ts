@@ -19,6 +19,8 @@ export const Buttons = {
   ThrowHE: 1 << 9,
   ThrowFlash: 1 << 10,
   ThrowSmoke: 1 << 11,
+  /** Drop the active weapon on the ground (G). */
+  Drop: 1 << 12,
 } as const;
 
 /**
