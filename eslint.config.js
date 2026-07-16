@@ -6,13 +6,14 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Node-side dev tools (map generator etc.)
-    files: ['tools/**/*.mjs'],
+    // Node-side dev tools (map generator etc.) + headless match-logic tests.
+    files: ['tools/**/*.mjs', 'tests/**/*.mjs'],
     languageOptions: {
       globals: {
         Buffer: 'readonly',
         console: 'readonly',
         process: 'readonly',
+        URL: 'readonly',
       },
     },
   },

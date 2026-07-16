@@ -132,7 +132,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
   - **Current state: synthesized placeholders** from `tools/generate-audio.mjs`. Before shipping (Phase 8 polish at the latest), replace the WAVs in `public/assets/audio/` with real assets (Kenney.nl is the shippable CC0 option) — same filenames, no code changes needed. See `public/assets/audio/README.md` for the file list.
 - [x] Audio: per-weapon gunshots, reload, footsteps (rate tied to speed), hit confirm, death. Distance-based volume + pan for other players' sounds
 - [x] Footstep sounds of _unseen_ enemies are a core CS mechanic — play them positionally even when the enemy isn't rendered
-- [ ] Damage direction indicator on HUD — **not implemented** (only remaining Phase 5 item)
+- [x] Damage direction indicator on HUD — red arc at screen center toward the shooter, 700 ms fade (`updateDamageIndicators`; the earlier "not implemented" note was a bad audit — verified in-game 2026-07)
 
 **Done when:** a 60-second clip of you shooting a dummy looks and sounds satisfying.
 
@@ -244,8 +244,8 @@ because of the connection, the server tier, or the code.
 
 - [x] **Halftime side swap:** no team-swap logic exists in `src/match/` — a first-to-13 match plays every round on the same side, which is unfair on asymmetric defuse maps. Swap teams (and reset economy) after round 12. Biggest gameplay gap. Note: adding halftime makes a 12–12 draw possible — decide draw vs simple overtime then (today first-to-13 with no swap can't draw) — **done:** `swapSides()` in MatchState fires after roundsToWin−1 rounds (scores follow the players, economy/streaks/gear reset, `halftime` event → SWITCHING SIDES banner + roster/view rebuild on both client and server). 12–12 (generally (rtw−1)-all) is a **draw** (`match_end` with `winner: null`, "MATCH DRAWN" banner); overtime stays a backlog idea
 - [x] **Weapon drop / pickup:** only the *bomb* drops on death (`MatchState`). Guns should drop as world entities and be picked up by walking over them (+ manual drop key, G) — eco-round scavenging and passing a teammate a rifle are core CS economy moves — **done:** `DroppedWeapon` entities in MatchState (ammo preserved); death drops the best gun, G drops the active one (tossed ~40 px ahead, wall-checked), walk-over pickup when the slot is free, floor cleared at round start. **Key change: HE grenade moved G → X** to free G for drop (proper rebinding comes with the keybind-settings item)
-- [ ] **Damage direction indicator** (carried over from Phase 5 — still the only unbuilt Phase 5 item)
-- [ ] **Mouse sensitivity + keybind settings** (carried over from Phase 8 — settings panel only has volume and bot difficulty)
+- [x] **Damage direction indicator** (carried over from Phase 5 — still the only unbuilt Phase 5 item) — **turns out it was already built** in the Phase 5 commit (`updateDamageIndicators`, red arc toward the shooter) and the 2026-07 audit missed it; verified working in-game. Only gap: HE/bomb damage doesn't trigger it (bullets only) — fine for now
+- [x] **Mouse sensitivity + keybind settings** (carried over from Phase 8 — settings panel only has volume and bot difficulty) — **keybinds done:** every action (move/walk/use/reload/drop/grenades/weapon slots) is rebindable in the settings panel (click → press key; conflicts swap; ESC cancels), persisted in `Settings.keybinds`, applied live on unpause via `InputSystem.reloadBinds()`; menu footer + bomb hint read the live binds. **Mouse sensitivity is N/A by design:** aim is absolute cursor position (pointer → world angle), not relative mouse movement — there is nothing for a sensitivity multiplier to act on
 
 ### Multiplayer product gaps
 

@@ -21,6 +21,7 @@ import {
   WORLD,
 } from '../game/theme';
 import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
+import { keyDisplayName, loadSettings } from '../game/settings';
 
 export interface BuyMenuItem {
   item: BuyItem;
@@ -157,6 +158,8 @@ export class UIScene extends Phaser.Scene {
   private minimapOrigin = { x: 14, y: 14 };
   private pingText!: Phaser.GameObjects.Text;
   private netWarnText!: Phaser.GameObjects.Text;
+  /** Display name of the Use bind, for the bomb-carry hint. */
+  private useKeyName = 'E';
 
   constructor() {
     super('UI');
@@ -184,6 +187,7 @@ export class UIScene extends Phaser.Scene {
 
   create(): void {
     applyHiDPI(this);
+    this.useKeyName = keyDisplayName(loadSettings().keybinds.use);
     const w = GAME_WIDTH;
     const h = GAME_HEIGHT;
     const text = (
@@ -400,7 +404,7 @@ export class UIScene extends Phaser.Scene {
     this.ammoText.setColor(d.ammoWarn ? DANGER : TEXT_1);
     this.bombText.setText(
       d.carryingBomb
-        ? 'CARRYING THE BOMB — HOLD E IN A SITE TO PLANT'
+        ? `CARRYING THE BOMB — HOLD ${this.useKeyName} IN A SITE TO PLANT`
         : d.bombPlanted
           ? 'BOMB PLANTED'
           : '',

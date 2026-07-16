@@ -4,6 +4,15 @@ import { SettingsPanel } from '../game/ui/SettingsPanel';
 import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 import { FACTION_CSS, FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_2, TEXT_3 } from '../game/theme';
 import { MAPS } from '../game/map/MapLoader';
+import { keyDisplayName, loadSettings } from '../game/settings';
+
+/** Footer control summary, built from the live keybinds. */
+function controlsHint(): string {
+  const b = loadSettings().keybinds;
+  const k = (name: keyof typeof b): string => keyDisplayName(b[name]);
+  const move = `${k('up')}${k('left')}${k('down')}${k('right')}`;
+  return `${move} move · mouse aim/shoot · ${k('walk')} walk · ${k('reload')} reload · ${k('use')} plant/defuse · ${k('drop')} drop · TAB score`;
+}
 
 /** Passed to GameScene via scene.start data. */
 export interface GameConfig {
@@ -86,7 +95,7 @@ export class MenuScene extends Phaser.Scene {
     this.settingsPanel = new SettingsPanel(this, w / 2, h * 0.52);
 
     this.add
-      .text(w / 2, h - 24, 'WASD move · mouse aim/shoot · SHIFT walk · R reload · E plant/defuse · TAB score', {
+      .text(w / 2, h - 24, controlsHint(), {
         fontFamily: FONT_DATA,
         fontSize: '11px',
         fontStyle: '500',
