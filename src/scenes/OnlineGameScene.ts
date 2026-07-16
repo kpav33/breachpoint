@@ -402,7 +402,9 @@ export class OnlineGameScene extends GameScene {
     if (!this.welcomed || this.pending.length === 0) return;
 
     this.ingestSnapshots();
-    this.map = loadMap(this, this.config.mapKey).data;
+    const loaded = loadMap(this, this.config.mapKey);
+    this.map = loaded.data;
+    this.wallsLayer = loaded.tilemap.getLayer('walls')?.tilemapLayer ?? null;
     this.views = {};
     this.syncRoster();
     this.createPresentation();

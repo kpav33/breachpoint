@@ -40,6 +40,7 @@ import {
 import type { BuyItem, MatchState } from '../match/MatchState';
 import { InputSystem } from '../game/systems/InputSystem';
 import { EffectsSystem } from '../game/systems/EffectsSystem';
+import { ElevationSystem } from '../game/systems/ElevationSystem';
 import { VisionSystem } from '../game/systems/VisionSystem';
 import { AudioSystem } from '../game/systems/AudioSystem';
 import { PlayerView } from '../game/entities/PlayerView';
@@ -112,6 +113,9 @@ export class GameScene extends Phaser.Scene implements HudSource {
   protected map!: MapData;
   protected inputSystem!: InputSystem;
   protected effects!: EffectsSystem;
+  protected elevation!: ElevationSystem;
+  /** Flat tilemap walls layer — hidden while the 2.5D extrusion is on. */
+  protected wallsLayer: Phaser.Tilemaps.TilemapLayer | null = null;
   protected vision!: VisionSystem;
   protected audio!: AudioSystem;
   protected views!: Record<string, PlayerView>;
@@ -173,7 +177,9 @@ export class GameScene extends Phaser.Scene implements HudSource {
 
   create(): void {
     applyHiDPI(this);
-    this.map = loadMap(this, this.config.mapKey).data;
+    const loaded = loadMap(this, this.config.mapKey);
+    this.map = loaded.data;
+    this.wallsLayer = loaded.tilemap.getLayer('walls')?.tilemapLayer ?? null;
     this.state = createGameState();
     this.views = {};
     this.buildRoster();
@@ -198,6 +204,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     // Keybinds may change in the pause overlay's settings panel.
     this.events.on('resume', () => this.inputSystem.reloadBinds());
     this.effects = new EffectsSystem(this, grid.width * grid.tileSize, grid.height * grid.tileSize);
+    this.elevation = new ElevationSystem(this, grid, this.wallsLayer);
     this.vision = new VisionSystem(this, this.map.segments);
     this.audio = new AudioSystem(this);
     this.bombGfx = this.add.graphics().setDepth(4);
@@ -265,6 +272,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
     kb.on('keydown-F5', () => (this.vision.fullCircle = !this.vision.fullCircle));
     kb.on('keydown-F6', () => (this.botsFrozen = !this.botsFrozen));
+    kb.on('keydown-F7', () => (this.elevation.enabled = !this.elevation.enabled));
     this.bindPauseKey();
   }
 
@@ -304,6 +312,8 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
     this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle, this.state.smokes);
     this.cullEnemies(subjectId);
+    const cam = this.cameras.main;
+    this.elevation.update(cam.midPoint, cam.worldView);
 
     this.updateDebug(this.state.players[this.humanId]);
   }
@@ -929,6 +939,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
       'vision',
       `${this.vision.rayCount} rays, ${this.vision.fullCircle ? '360°' : 'cone'} (F5)`,
     );
+    this.debug.setLine('render', `${this.elevation.enabled ? '2.5D walls' : 'flat walls'} (F7)`);
     this.extendDebug();
     this.debug.update();
     if (this.debug.isVisible) this.drawDebug(player);

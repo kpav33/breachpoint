@@ -47,6 +47,13 @@ export const WORLD_PALETTES = { NIGHTFALL, EMBER };
 const ACTIVE: keyof typeof WORLD_PALETTES = 'NIGHTFALL';
 export const WORLD: WorldPalette = WORLD_PALETTES[ACTIVE];
 
+/**
+ * 2.5D wall extrusion (Phase 10 prototype, render-only): wall tops are
+ * displaced away from the camera center by (pos − center) × this factor,
+ * with side faces filling the gap. 0 would be flat; ~0.1 is very tall.
+ */
+export const WALL_EXTRUDE = 0.09;
+
 /** Fixed faction colors — the same on every client (multiplayer-proof). */
 export const FACTION: Record<Team, number> = {
   T: 0xef7d3a,

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { PLAYER_RADIUS } from '../../core/config';
 import type { Team } from '../../core/types';
-import { BOMB, FACTION, HP_GOOD, HP_LOW, HP_MID, ME_RING } from '../theme';
+import { BOMB, FACTION, HP_GOOD, HP_LOW, HP_MID, ME_RING, WORLD } from '../theme';
 
 const HP_BAR_WIDTH = 26;
 
@@ -26,6 +26,9 @@ export class PlayerView extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.baseColor = FACTION[team];
 
+    // Drop shadow (2.5D look): offset toward bottom-right, never rotates.
+    const shadow = scene.add.ellipse(3, 4, PLAYER_RADIUS * 2 + 2, PLAYER_RADIUS * 2 + 2, WORLD.void2, 0.4);
+
     this.circle = scene.add.circle(0, 0, PLAYER_RADIUS, this.baseColor);
     // "You" is the white ring; everyone else gets a dark grounding stroke.
     this.circle.setStrokeStyle(isMe ? 3 : 2, isMe ? ME_RING : 0x0d1014, 1);
@@ -47,7 +50,7 @@ export class PlayerView extends Phaser.GameObjects.Container {
       .rectangle(HP_BAR_WIDTH / 2 + 7, barY, 6, 6, BOMB)
       .setVisible(false);
 
-    this.add([this.aimBody, this.hpBg, this.hpFill, this.bombMarker]);
+    this.add([shadow, this.aimBody, this.hpBg, this.hpFill, this.bombMarker]);
     this.setDepth(5);
     scene.add.existing(this);
   }
