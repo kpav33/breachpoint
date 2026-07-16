@@ -249,7 +249,7 @@ because of the connection, the server tier, or the code.
 
 ### Multiplayer product gaps
 
-- [ ] **Reconnect handling:** no `allowReconnection` on the server — a browser refresh or Wi-Fi blip mid-match permanently replaces the player with a bot. Grace window (~60s) where the seat is held and the player can rejoin with money/score intact
+- [x] **Reconnect handling:** no `allowReconnection` on the server — a browser refresh or Wi-Fi blip mid-match permanently replaces the player with a bot. Grace window (~60s) where the seat is held and the player can rejoin with money/score intact — **done:** `allowReconnection(client, RECONNECT_GRACE_SEC)` holds the seat on non-consented leaves (avatar benched via `handlePlayerDisconnect`: gun/bomb drop, plant cancelled, stats intact; name tagged "(dc)"); voluntary quits and match_end clean up immediately. Client auto-retries mid-session drops (6 attempts) and survives page refreshes via a sessionStorage token (re-stamped every ping) + a "RECONNECT TO MATCH" menu button; the server resends `MSG_WELCOME` on reconnect so a fresh page relearns its player id. E2E-verified (refresh → menu → same match)
 - [ ] **In-game chat:** nothing in the protocol. Minimal all-chat + team chat (with basic rate limiting); expected in anything competitive
 
 ### Hardening

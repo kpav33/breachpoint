@@ -453,6 +453,28 @@ function updateDefuse(
   }
 }
 
+/**
+ * A player's connection dropped but their seat is being held (reconnect
+ * grace window): the avatar dies silently — best gun and bomb hit the
+ * ground, any plant/defuse is cancelled — but stats/money stay untouched,
+ * so a returning player re-enters exactly like a mid-round joiner.
+ */
+export function handlePlayerDisconnect(match: MatchState, game: GameState, id: string): void {
+  const p = game.players[id];
+  if (!p) return;
+  if (p.hp > 0) {
+    dropBestWeapon(match, p, p.pos);
+    p.hp = 0;
+  }
+  if (match.bomb.carrierId === id) {
+    match.bomb.carrierId = null;
+    match.bomb.droppedAt = { x: p.pos.x, y: p.pos.y };
+    match.events.push({ type: 'bomb_dropped', pos: { ...match.bomb.droppedAt } });
+  }
+  if (match.bomb.plant?.playerId === id) match.bomb.plant = null;
+  if (match.bomb.defuse?.playerId === id) match.bomb.defuse = null;
+}
+
 /** The knife (slot 0) and the default pistol never drop. */
 function droppableSlotIndex(p: PlayerState): number {
   if (p.slots[2]) return 2;

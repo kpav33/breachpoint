@@ -5,6 +5,7 @@ import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI } from '../game/display';
 import { FACTION_CSS, FONT_DATA, FONT_DISPLAY, TEXT_1, TEXT_2, TEXT_3 } from '../game/theme';
 import { MAPS } from '../game/map/MapLoader';
 import { keyDisplayName, loadSettings } from '../game/settings';
+import { loadReconnectToken } from '../net/NetClient';
 
 /** Footer control summary, built from the live keybinds. */
 function controlsHint(): string {
@@ -62,6 +63,17 @@ export class MenuScene extends Phaser.Scene {
         color: TEXT_1,
       })
       .setOrigin(0.5);
+
+    // A held seat from a dropped/refreshed session: offer to rejoin.
+    const token = loadReconnectToken();
+    if (token) {
+      this.button(w / 2, h * 0.48 - 66, 'RECONNECT TO MATCH', 'your seat is being held', () => {
+        this.scene.start('OnlineGame', {
+          join: { mode: 'reconnect', token },
+          name: loadSettings().playerName,
+        });
+      });
+    }
 
     MODES.forEach((mode, i) => {
       this.button(w / 2, h * 0.48 + i * 62, mode.label, mode.sub, () => {

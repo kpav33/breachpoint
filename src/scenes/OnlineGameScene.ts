@@ -20,7 +20,15 @@ import { GameScene } from './GameScene';
 import type { GameConfig } from './MenuScene';
 import { movementFrozen } from '../match/MatchState';
 import type { BuyItem } from '../match/MatchState';
-import { hostPrivate, joinByCode, quickPlay } from '../net/NetClient';
+import {
+  clearReconnectToken,
+  hostPrivate,
+  joinByCode,
+  loadReconnectToken,
+  quickPlay,
+  reconnect,
+  saveReconnectToken,
+} from '../net/NetClient';
 import { MSG_BUY, MSG_INPUT, MSG_PING, MSG_PONG, MSG_SNAPSHOT, MSG_WELCOME } from '../net/protocol';
 import type { InputMessage, Ping, ServerPerf, Snapshot, Welcome } from '../net/protocol';
 import { PlayerView } from '../game/entities/PlayerView';
@@ -56,7 +64,9 @@ function perSec(times: number[]): number {
 export type JoinSpec =
   | { mode: 'quick' }
   | { mode: 'host' }
-  | { mode: 'code'; roomId: string };
+  | { mode: 'code'; roomId: string }
+  /** Re-attach to a held seat (page refresh / menu RECONNECT button). */
+  | { mode: 'reconnect'; token: string };
 
 /** Scene-start payload for the online game (extends the offline GameConfig). */
 export interface OnlineInit extends Partial<GameConfig> {
@@ -108,6 +118,10 @@ export class OnlineGameScene extends GameScene {
   private sendTick = 0;
   private joinSpec: JoinSpec = { mode: 'quick' };
   private playerName = 'Player';
+  /** True once the player chose to quit — suppresses reconnect attempts. */
+  private leaving = false;
+  private reconnectNotice: Phaser.GameObjects.Text | null = null;
+  private pingTimerStarted = false;
 
   // net_graph state (Phase 9.5) — all rates over a NET_WINDOW_MS window.
   private rttSamples: number[] = [];
@@ -160,6 +174,9 @@ export class OnlineGameScene extends GameScene {
     this.interpBufferMs = 0;
     this.bytesIn = [];
     this.bytesOut = [];
+    this.leaving = false;
+    this.reconnectNotice = null;
+    this.pingTimerStarted = false;
   }
 
   create(): void {
@@ -189,8 +206,11 @@ export class OnlineGameScene extends GameScene {
         this.scene.start('Menu');
       }
     });
-    // Leaving the scene (quit to menu) leaves the room.
+    // Leaving the scene (quit to menu) leaves the room for good.
+    this.leaving = false;
     this.events.once('shutdown', () => {
+      this.leaving = true;
+      clearReconnectToken();
       void this.room?.leave();
       this.room = null;
     });
@@ -210,51 +230,114 @@ export class OnlineGameScene extends GameScene {
           ? await hostPrivate(options)
           : this.joinSpec.mode === 'code'
             ? await joinByCode(this.joinSpec.roomId, options)
-            : await quickPlay(options);
+            : this.joinSpec.mode === 'reconnect'
+              ? await reconnect(this.joinSpec.token)
+              : await quickPlay(options);
       if (!this.scene.isActive()) {
         void room.leave();
         return;
       }
-      this.room = room;
-      this.showRoomCode(room.roomId);
-      room.onMessage(MSG_WELCOME, (w: Welcome) => {
-        this.humanId = w.playerId;
-        this.config.mapKey = w.mapKey;
-        this.welcomed = true;
-      });
-      room.onMessage(MSG_SNAPSHOT, (s: Snapshot) => {
-        const now = performance.now();
-        this.pending.push({ atMs: now, snap: s });
-        this.snapArrivals.push(now);
-        this.lastSnapAt = now;
-        this.bytesIn.push({ at: now, n: JSON.stringify(s).length });
-      });
-      room.onMessage(MSG_PONG, (p: Ping) => {
-        if (typeof p?.t !== 'number') return;
-        this.rttSamples.push(performance.now() - p.t);
-        if (this.rttSamples.length > RTT_SAMPLES) this.rttSamples.shift();
-      });
-      // RTT probe: Colyseus doesn't measure ping for us.
+      this.attachRoom(room);
+    } catch (err) {
+      if (this.joinSpec.mode === 'reconnect') clearReconnectToken();
+      this.connectionError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  /** Wire up a (re)joined room: message handlers, token, drop detection. */
+  private attachRoom(room: Room): void {
+    this.room = room;
+    saveReconnectToken(room.reconnectionToken);
+    this.showRoomCode(room.roomId);
+    room.onMessage(MSG_WELCOME, (w: Welcome) => {
+      this.humanId = w.playerId;
+      this.config.mapKey = w.mapKey;
+      this.welcomed = true;
+    });
+    room.onMessage(MSG_SNAPSHOT, (s: Snapshot) => {
+      const now = performance.now();
+      this.pending.push({ atMs: now, snap: s });
+      this.snapArrivals.push(now);
+      this.lastSnapAt = now;
+      this.bytesIn.push({ at: now, n: JSON.stringify(s).length });
+    });
+    room.onMessage(MSG_PONG, (p: Ping) => {
+      if (typeof p?.t !== 'number') return;
+      this.rttSamples.push(performance.now() - p.t);
+      if (this.rttSamples.length > RTT_SAMPLES) this.rttSamples.shift();
+    });
+    // RTT probe (Colyseus doesn't measure ping for us) — one timer per
+    // scene, reused across reconnects. It also re-stamps the stored token,
+    // so a refresh deep into a match still finds a "young" token.
+    if (!this.pingTimerStarted) {
+      this.pingTimerStarted = true;
       this.time.addEvent({
         delay: PING_INTERVAL_MS,
         loop: true,
         startAt: PING_INTERVAL_MS - 1, // first ping right away
         callback: () => {
+          if (!this.room) return;
           // Report our rolling RTT so the server can share it (scoreboard).
           const rtt = this.rttAvg();
           const ping: Ping = { t: performance.now(), ...(rtt !== null && { rtt }) };
-          this.room?.send(MSG_PING, ping);
+          this.room.send(MSG_PING, ping);
+          saveReconnectToken(this.room.reconnectionToken);
         },
       });
-      room.onError((code, message) => {
-        this.connectionError = message ?? `room error ${code}`;
-      });
-      room.onLeave(() => {
-        this.room = null;
-      });
-    } catch (err) {
-      this.connectionError = err instanceof Error ? err.message : String(err);
     }
+    room.onError((code, message) => {
+      this.connectionError = message ?? `room error ${code}`;
+    });
+    room.onLeave(() => {
+      this.room = null;
+      // Unexpected drop (not a quit): the server holds our seat — retry.
+      if (!this.leaving && this.worldReady) void this.tryReconnect();
+    });
+  }
+
+  /** Auto-retry after a mid-match connection drop, inside the grace window. */
+  private async tryReconnect(): Promise<void> {
+    this.showReconnectNotice('CONNECTION LOST — RECONNECTING…');
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const token = loadReconnectToken();
+      if (!token || this.leaving || !this.scene.isActive()) break;
+      try {
+        const room = await reconnect(token);
+        if (!this.scene.isActive()) {
+          void room.leave();
+          return;
+        }
+        this.attachRoom(room);
+        this.reconnectNotice?.destroy();
+        this.reconnectNotice = null;
+        return;
+      } catch {
+        this.showReconnectNotice(`CONNECTION LOST — RECONNECTING… (${attempt}/6)`);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    }
+    if (this.leaving || !this.scene.isActive()) return;
+    clearReconnectToken();
+    this.reconnectNotice?.destroy();
+    this.reconnectNotice = null;
+    this.showDisconnected();
+  }
+
+  private showReconnectNotice(msg: string): void {
+    if (this.reconnectNotice) {
+      this.reconnectNotice.setText(msg);
+      return;
+    }
+    this.reconnectNotice = this.add
+      .text(screenX(GAME_WIDTH / 2), screenY(90), msg, {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '20px',
+        fontStyle: '700',
+        color: TEXT_1,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(700);
   }
 
   /** Persistent top-left label so any player can share the room code. */
@@ -282,7 +365,10 @@ export class OnlineGameScene extends GameScene {
       return;
     }
     super.update(time, delta);
-    if (this.room === null) this.showDisconnected();
+    // room === null is fine while a reconnect attempt is in flight.
+    if (this.room === null && this.reconnectNotice === null && !this.leaving) {
+      this.showDisconnected();
+    }
   }
 
   /** World setup happens on the first snapshot: we need the roster to exist. */

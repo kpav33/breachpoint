@@ -31,3 +31,48 @@ export function hostPrivate(options: JoinOptions): Promise<Room> {
 export function joinByCode(roomId: string, options: JoinOptions): Promise<Room> {
   return getClient().joinById(roomId, options);
 }
+
+/** Re-attach to a held seat using a token from a previous connection. */
+export function reconnect(token: string): Promise<Room> {
+  return getClient().reconnect(token);
+}
+
+// --- Reconnection token persistence (survives a page refresh) --------------
+// sessionStorage is deliberate: per-tab, so two tabs can't fight over one
+// seat, and it dies with the browser session.
+const TOKEN_KEY = 'breachpoint.reconnect';
+/** Past this age we assume the server-side grace window has expired. */
+const TOKEN_MAX_AGE_MS = 90_000;
+
+export function saveReconnectToken(token: string): void {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, at: Date.now() }));
+  } catch {
+    // Storage failures (private mode) just mean no refresh-reconnect.
+  }
+}
+
+export function clearReconnectToken(): void {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** The stored token, if it is still young enough to plausibly work. */
+export function loadReconnectToken(): string | null {
+  try {
+    const raw = sessionStorage.getItem(TOKEN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { token?: unknown; at?: unknown };
+    if (typeof parsed.token !== 'string' || typeof parsed.at !== 'number') return null;
+    if (Date.now() - parsed.at > TOKEN_MAX_AGE_MS) {
+      clearReconnectToken();
+      return null;
+    }
+    return parsed.token;
+  } catch {
+    return null;
+  }
+}

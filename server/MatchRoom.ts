@@ -19,6 +19,7 @@ import {
   INPUT_QUEUE_MAX,
   LAG_COMP_MAX_REWIND_SEC,
   PERF_WINDOW_SEC,
+  RECONNECT_GRACE_SEC,
   ROUNDS_TO_WIN,
   SNAPSHOT_RATE,
   START_MONEY,
@@ -30,7 +31,13 @@ import { applyInput, createGameState, createPlayer, stepWorld } from '../src/cor
 import { parseTiledMap } from '../src/core/map.ts';
 import type { MapData, TiledMap } from '../src/core/map.ts';
 import { canSee, smokeSegments } from '../src/core/vision.ts';
-import { createMatchState, movementFrozen, tryBuy, updateMatch } from '../src/match/MatchState.ts';
+import {
+  createMatchState,
+  handlePlayerDisconnect,
+  movementFrozen,
+  tryBuy,
+  updateMatch,
+} from '../src/match/MatchState.ts';
 import type { BuyItem, MatchState } from '../src/match/MatchState.ts';
 import { BotController } from '../src/ai/BotController.ts';
 import { assignBotObjectives, buildBotWorld } from '../src/ai/objectives.ts';
@@ -182,17 +189,47 @@ export class MatchRoom extends Room {
     console.log(`${name} (${id}) joined as ${team}`);
   }
 
-  onLeave(client: Client): void {
+  async onLeave(client: Client, consented?: boolean): Promise<void> {
     const id = client.sessionId;
+    // Voluntary quit (ESC → menu) or match already over: clean up now.
+    if (consented || this.match.phase === 'match_end' || !this.game.players[id]) {
+      this.dropSeat(id);
+      console.log(`${id} left`);
+      return;
+    }
+
+    // Connection drop: hold the seat. The avatar dies in place (gun + bomb
+    // drop), stats stay, and no bot backfills while the window is open.
+    const name = this.names[id];
+    handlePlayerDisconnect(this.match, this.game, id);
+    this.names[id] = `${name} (dc)`;
+    this.queues.set(id, []);
+    this.lastCmd.delete(id);
+    console.log(`${name} (${id}) disconnected — holding seat ${RECONNECT_GRACE_SEC}s`);
+
+    try {
+      const reconnected = await this.allowReconnection(client, RECONNECT_GRACE_SEC);
+      this.names[id] = name;
+      // onJoin does not run again — resend the welcome so a fresh page
+      // (refresh flow) learns its player id and map.
+      const welcome: Welcome = { playerId: id, mapKey: this.mapKey };
+      reconnected.send(MSG_WELCOME, welcome);
+      console.log(`${name} (${id}) reconnected`);
+    } catch {
+      this.dropSeat(id);
+      console.log(`${id} left (grace expired)`);
+    }
+  }
+
+  /** Final removal: free the slot and backfill a bot for the remaining humans. */
+  private dropSeat(id: string): void {
     const team = this.game.players[id]?.team;
     this.removePlayer(id);
-    // Backfill with a bot so remaining humans still get a full match.
     if (team && this.humanCount() > 0 && this.teamSize(team) < TEAM_TARGET) {
       this.addBot(team);
     }
     this.rebuildRoster();
     this.publishMetadata();
-    console.log(`${id} left`);
   }
 
   // --- Roster / bot management -------------------------------------------

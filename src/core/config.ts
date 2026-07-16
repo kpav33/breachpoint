@@ -119,6 +119,8 @@ export const INTERP_DELAY_MS = 100;
 export const LAG_COMP_MAX_REWIND_SEC = 1;
 /** How often the client sends an RTT probe (MSG_PING), ms. */
 export const PING_INTERVAL_MS = 2000;
+/** How long a disconnected player's seat is held for reconnection, sec. */
+export const RECONNECT_GRACE_SEC = 60;
 /** Rolling window for server tick-cost stats (avg/max/TPS), sec. */
 export const PERF_WINDOW_SEC = 2;
 
