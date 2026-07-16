@@ -122,7 +122,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   /** Bombsite centers snapped to walkable tiles (bot plant/defend anchors). */
   private siteAnchors: Vec2[] = [];
   protected debug!: DebugOverlay;
-  private ui!: UIScene;
+  protected ui!: UIScene;
   private bombGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
   private damageIndicators: { angle: number; age: number }[] = [];
@@ -270,6 +270,8 @@ export class GameScene extends Phaser.Scene implements HudSource {
 
   protected bindPauseKey(): void {
     this.input.keyboard!.on('keydown-ESC', () => {
+      // ESC while typing chat cancels the chat, not the match.
+      if (this.ui?.chatBlocksInput) return;
       this.scene.pause();
       this.scene.pause('UI');
       this.scene.launch('Pause', { gameKey: this.scene.key });

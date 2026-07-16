@@ -29,8 +29,25 @@ import {
   reconnect,
   saveReconnectToken,
 } from '../net/NetClient';
-import { MSG_BUY, MSG_INPUT, MSG_PING, MSG_PONG, MSG_SNAPSHOT, MSG_WELCOME } from '../net/protocol';
-import type { InputMessage, Ping, ServerPerf, Snapshot, Welcome } from '../net/protocol';
+import {
+  MSG_BUY,
+  MSG_CHAT,
+  MSG_CHAT_MSG,
+  MSG_INPUT,
+  MSG_PING,
+  MSG_PONG,
+  MSG_SNAPSHOT,
+  MSG_WELCOME,
+} from '../net/protocol';
+import type {
+  ChatMessage,
+  ChatSend,
+  InputMessage,
+  Ping,
+  ServerPerf,
+  Snapshot,
+  Welcome,
+} from '../net/protocol';
 import { PlayerView } from '../game/entities/PlayerView';
 import type { HudNet } from './UIScene';
 import { loadMap } from '../game/map/MapLoader';
@@ -266,6 +283,10 @@ export class OnlineGameScene extends GameScene {
       this.rttSamples.push(performance.now() - p.t);
       if (this.rttSamples.length > RTT_SAMPLES) this.rttSamples.shift();
     });
+    room.onMessage(MSG_CHAT_MSG, (m: ChatMessage) => {
+      if (!this.worldReady || typeof m?.text !== 'string') return;
+      this.ui.addChatLine(m.name, m.team === 'CT' ? 'CT' : 'T', m.text, m.teamOnly === true);
+    });
     // RTT probe (Colyseus doesn't measure ping for us) — one timer per
     // scene, reused across reconnects. It also re-stamps the stored token,
     // so a refresh deep into a match still finds a "young" token.
@@ -485,6 +506,8 @@ export class OnlineGameScene extends GameScene {
     let cmd = this.inputSystem.sample(this.sendTick++, this.predicted.pos);
     // Mirror the server's freeze so prediction can't run where it won't.
     if (movementFrozen(this.match)) cmd = { ...cmd, moveX: 0, moveY: 0, buttons: 0 };
+    // Typing in chat: keystrokes are text, not orders.
+    if (this.ui?.chatBlocksInput) cmd = { ...cmd, moveX: 0, moveY: 0, buttons: 0 };
 
     const msg: InputMessage = { cmd, viewTick: Math.round(this.viewTick) };
     this.room.send(MSG_INPUT, msg);
@@ -644,6 +667,12 @@ export class OnlineGameScene extends GameScene {
   /** Purchases are server-validated; the result arrives in the next snapshot. */
   buy(item: BuyItem): void {
     this.room?.send(MSG_BUY, item);
+  }
+
+  /** Chat is relayed (and rate-limited) by the server. */
+  sendChat(text: string, teamOnly: boolean): void {
+    const msg: ChatSend = { text, team: teamOnly };
+    this.room?.send(MSG_CHAT, msg);
   }
 
   /** No local cheats online — keep the vision toggle and pause overlay only. */

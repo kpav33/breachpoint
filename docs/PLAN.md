@@ -250,7 +250,7 @@ because of the connection, the server tier, or the code.
 ### Multiplayer product gaps
 
 - [x] **Reconnect handling:** no `allowReconnection` on the server — a browser refresh or Wi-Fi blip mid-match permanently replaces the player with a bot. Grace window (~60s) where the seat is held and the player can rejoin with money/score intact — **done:** `allowReconnection(client, RECONNECT_GRACE_SEC)` holds the seat on non-consented leaves (avatar benched via `handlePlayerDisconnect`: gun/bomb drop, plant cancelled, stats intact; name tagged "(dc)"); voluntary quits and match_end clean up immediately. Client auto-retries mid-session drops (6 attempts) and survives page refreshes via a sessionStorage token (re-stamped every ping) + a "RECONNECT TO MATCH" menu button; the server resends `MSG_WELCOME` on reconnect so a fresh page relearns its player id. E2E-verified (refresh → menu → same match)
-- [ ] **In-game chat:** nothing in the protocol. Minimal all-chat + team chat (with basic rate limiting); expected in anything competitive
+- [x] **In-game chat:** nothing in the protocol. Minimal all-chat + team chat (with basic rate limiting); expected in anything competitive — **done:** Y = all-chat, U = team chat, Enter sends / ESC cancels; game input is suppressed while typing. Server validates (control chars stripped, 96-char clamp), rate-limits (3 msgs / 4 s sliding window) and relays — team chat is filtered server-side so it never reaches enemy clients. Lines render bottom-left in sender faction color, fading after 8 s. Online only (no `sendChat` source offline). Two-client e2e-verified incl. team filtering
 
 ### Hardening
 

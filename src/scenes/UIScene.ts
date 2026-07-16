@@ -110,6 +110,8 @@ export interface HudSource {
   buy(item: BuyItem): void;
   /** Static collision grid for the minimap walls (read once). */
   getGrid(): MapGrid;
+  /** Present only online: relay a chat line (teamOnly = team chat). */
+  sendChat?(text: string, teamOnly: boolean): void;
 }
 
 const BUY_ROWS = 10;
@@ -160,6 +162,12 @@ export class UIScene extends Phaser.Scene {
   private netWarnText!: Phaser.GameObjects.Text;
   /** Display name of the Use bind, for the bomb-carry hint. */
   private useKeyName = 'E';
+  // Chat (online only — offline has no HudSource.sendChat).
+  private chatLines: { text: Phaser.GameObjects.Text; ttl: number }[] = [];
+  private chatInput!: Phaser.GameObjects.Text;
+  private chatOpen = false;
+  private chatTeamOnly = false;
+  private chatBuffer = '';
 
   constructor() {
     super('UI');
@@ -242,10 +250,77 @@ export class UIScene extends Phaser.Scene {
     ] as const;
     buyKeys.forEach((key, i) => {
       kb.on(`keydown-${key}`, () => {
+        if (this.chatOpen) return; // typing, not buying
         const menu = this.buyMenuShown;
         if (menu && menu[i]?.enabled) this.source.buy(menu[i].item);
       });
     });
+
+    // Chat: Y opens all-chat, U team chat; Enter sends, ESC cancels.
+    this.chatInput = this.add
+      .text(14, h - 76, '', this.dataStyle(13))
+      .setOrigin(0, 1)
+      .setDepth(11)
+      .setVisible(false);
+    kb.on('keydown', (ev: KeyboardEvent) => this.onChatKey(ev));
+  }
+
+  /** True while the player is typing — game input must be suppressed. */
+  get chatBlocksInput(): boolean {
+    return this.chatOpen;
+  }
+
+  /** A relayed chat line, colored by the sender's team. */
+  addChatLine(name: string, team: Team, text: string, teamOnly: boolean): void {
+    const line = this.add
+      .text(14, 0, `${teamOnly ? '(TEAM) ' : ''}${name}: ${text}`, {
+        ...this.dataStyle(13, FACTION_CSS[team], '500'),
+        wordWrap: { width: 460 },
+      })
+      .setOrigin(0, 1)
+      .setDepth(11);
+    this.chatLines.push({ text: line, ttl: 8000 });
+    while (this.chatLines.length > 6) this.chatLines.shift()!.text.destroy();
+  }
+
+  private onChatKey(ev: KeyboardEvent): void {
+    if (!this.chatOpen) {
+      if (!this.source.sendChat) return; // offline: no chat
+      if (ev.key === 'y' || ev.key === 'Y') this.openChat(false);
+      else if (ev.key === 'u' || ev.key === 'U') this.openChat(true);
+      return;
+    }
+    if (ev.key === 'Enter') {
+      const text = this.chatBuffer.trim();
+      if (text) this.source.sendChat?.(text, this.chatTeamOnly);
+      this.closeChat();
+    } else if (ev.key === 'Escape') {
+      this.closeChat();
+    } else if (ev.key === 'Backspace') {
+      this.chatBuffer = this.chatBuffer.slice(0, -1);
+      this.refreshChatInput();
+    } else if (ev.key.length === 1 && this.chatBuffer.length < 96) {
+      this.chatBuffer += ev.key;
+      this.refreshChatInput();
+    }
+  }
+
+  private openChat(teamOnly: boolean): void {
+    this.chatOpen = true;
+    this.chatTeamOnly = teamOnly;
+    this.chatBuffer = '';
+    this.chatInput.setVisible(true);
+    this.refreshChatInput();
+  }
+
+  private closeChat(): void {
+    this.chatOpen = false;
+    this.chatBuffer = '';
+    this.chatInput.setVisible(false);
+  }
+
+  private refreshChatInput(): void {
+    this.chatInput.setText(`${this.chatTeamOnly ? 'SAY (TEAM)' : 'SAY'}: ${this.chatBuffer}_`);
   }
 
   /** Walls drawn once from the collision grid; dots redrawn per frame. */
@@ -440,6 +515,22 @@ export class UIScene extends Phaser.Scene {
       }
     }
     this.killFeed.forEach((entry, i) => entry.text.setY(86 + i * 20));
+
+    // Chat log: stacked above the input line, newest at the bottom.
+    for (let i = this.chatLines.length - 1; i >= 0; i--) {
+      const entry = this.chatLines[i];
+      entry.ttl -= delta;
+      if (entry.ttl <= 0) {
+        entry.text.destroy();
+        this.chatLines.splice(i, 1);
+      } else {
+        entry.text.setAlpha(Math.min(1, entry.ttl / 1500));
+      }
+    }
+    const chatBase = GAME_HEIGHT - 96;
+    this.chatLines.forEach((entry, i) =>
+      entry.text.setY(chatBase - (this.chatLines.length - 1 - i) * 18),
+    );
   }
 
   private drawActionBar(d: HudData): void {

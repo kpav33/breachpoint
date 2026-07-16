@@ -42,8 +42,25 @@ import type { BuyItem, MatchState } from '../src/match/MatchState.ts';
 import { BotController } from '../src/ai/BotController.ts';
 import { assignBotObjectives, buildBotWorld } from '../src/ai/objectives.ts';
 import type { BotWorld } from '../src/ai/objectives.ts';
-import { MSG_BUY, MSG_INPUT, MSG_PING, MSG_PONG, MSG_SNAPSHOT, MSG_WELCOME } from '../src/net/protocol.ts';
-import type { InputMessage, JoinOptions, Ping, ServerPerf, Snapshot, Welcome } from '../src/net/protocol.ts';
+import {
+  MSG_BUY,
+  MSG_CHAT,
+  MSG_CHAT_MSG,
+  MSG_INPUT,
+  MSG_PING,
+  MSG_PONG,
+  MSG_SNAPSHOT,
+  MSG_WELCOME,
+} from '../src/net/protocol.ts';
+import type {
+  ChatMessage,
+  InputMessage,
+  JoinOptions,
+  Ping,
+  ServerPerf,
+  Snapshot,
+  Welcome,
+} from '../src/net/protocol.ts';
 
 const FIXED_DT = 1 / TICK_RATE;
 /** Cap a hitching event-loop delta so the accumulator can't spiral. */
@@ -53,6 +70,11 @@ const DEFAULT_MAP = 'de_yard';
 const TEAM_TARGET = TEAM_SIZE;
 
 const MAPS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public/assets/maps');
+
+/** Chat limits: length clamp + sliding-window rate limit per client. */
+const CHAT_MAX_LEN = 96;
+const CHAT_WINDOW_MS = 4000;
+const CHAT_MAX_PER_WINDOW = 3;
 
 /** Buttons that fire on key-down; never repeat them when reusing a stale command. */
 const ONE_SHOT_BUTTONS =
@@ -88,6 +110,8 @@ export class MatchRoom extends Room {
   private names: Record<string, string> = { bomb: 'the bomb' };
   /** Last RTT each human reported via MSG_PING, ms (for scoreboards). */
   private pings: Record<string, number> = {};
+  /** Recent chat timestamps per client (rate limiting). */
+  private chatStamps = new Map<string, number[]>();
   /** Buffered inputs per player, applied one per tick (oldest first). */
   private queues = new Map<string, InputMessage[]>();
   /** Last applied command per player — reused (minus one-shots) when the buffer runs dry. */
@@ -153,6 +177,7 @@ export class MatchRoom extends Room {
     this.onMessage(MSG_INPUT, (client, cmd: unknown) => this.onInput(client, cmd));
     this.onMessage(MSG_BUY, (client, item: unknown) => this.onBuy(client, item));
     this.onMessage(MSG_PING, (client, msg: unknown) => this.onPing(client, msg));
+    this.onMessage(MSG_CHAT, (client, msg: unknown) => this.onChat(client, msg));
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
     console.log(`room ${this.roomId} created — map ${this.mapKey}, first to ${roundsToWin}`);
   }
@@ -394,6 +419,41 @@ export class MatchRoom extends Room {
     }
     const pong: Ping = { t: m.t };
     client.send(MSG_PONG, pong);
+  }
+
+  /** Validate, rate-limit and relay chat. Team chat only reaches teammates. */
+  private onChat(client: Client, msg: unknown): void {
+    if (typeof msg !== 'object' || msg === null) return;
+    const m = msg as Record<string, unknown>;
+    if (typeof m.text !== 'string') return;
+    // Strip control characters, collapse whitespace runs, clamp length.
+    // eslint-disable-next-line no-control-regex
+    const text = m.text.replace(/[\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LEN);
+    if (!text) return;
+
+    const id = client.sessionId;
+    const sender = this.game.players[id];
+    if (!sender) return;
+
+    const now = Date.now();
+    const stamps = (this.chatStamps.get(id) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
+    if (stamps.length >= CHAT_MAX_PER_WINDOW) {
+      this.chatStamps.set(id, stamps);
+      return; // flooding: drop silently
+    }
+    stamps.push(now);
+    this.chatStamps.set(id, stamps);
+
+    const teamOnly = m.team === true;
+    const out: ChatMessage = { name: this.names[id], team: sender.team, text, teamOnly };
+    if (teamOnly) {
+      // The server filters recipients — clients never see other-team chatter.
+      for (const c of this.clients) {
+        if (this.game.players[c.sessionId]?.team === sender.team) c.send(MSG_CHAT_MSG, out);
+      }
+    } else {
+      this.broadcast(MSG_CHAT_MSG, out);
+    }
   }
 
   private tick(dtMs: number): void {
