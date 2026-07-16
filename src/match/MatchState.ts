@@ -68,7 +68,10 @@ export interface BombState {
 export type MatchEvent =
   | { type: 'round_start'; round: number }
   | { type: 'round_end'; winner: Team; reason: RoundEndReason }
-  | { type: 'match_end'; winner: Team }
+  /** Sides were just swapped; fires right before the next round_start. */
+  | { type: 'halftime' }
+  /** winner null = draw (both sides reached roundsToWin − 1). */
+  | { type: 'match_end'; winner: Team | null }
   | { type: 'planted'; pos: Vec2 }
   | { type: 'defused' }
   | { type: 'exploded'; pos: Vec2 }
@@ -83,6 +86,10 @@ export interface MatchState {
   round: number;
   /** First team to this many round wins takes the match. */
   roundsToWin: number;
+  /** Per-player money at match start (halftime resets back to it). */
+  startMoney: number;
+  /** Teams switch sides once, after roundsToWin − 1 rounds have been played. */
+  sidesSwapped: boolean;
   score: Record<Team, number>;
   lossStreak: Record<Team, number>;
   stats: Record<string, PlayerMatchStats>;
@@ -120,6 +127,8 @@ export function createMatchState(
     phaseTimeLeft: WARMUP_TIME_SEC,
     round: 0,
     roundsToWin,
+    startMoney,
+    sidesSwapped: false,
     score: { T: 0, CT: 0 },
     lossStreak: { T: 0, CT: 0 },
     stats,
@@ -248,11 +257,22 @@ export function updateMatch(
       if (match.phaseTimeLeft <= 0) {
         const winner =
           match.score.T >= match.roundsToWin ? 'T' : match.score.CT >= match.roundsToWin ? 'CT' : null;
+        const played = match.score.T + match.score.CT;
+        // With a halftime swap the match caps at 2·(roundsToWin − 1) rounds;
+        // reaching it without a winner is the (roundsToWin−1)-all draw.
+        const maxRounds = 2 * (match.roundsToWin - 1);
         if (winner) {
           match.phase = 'match_end';
           match.phaseTimeLeft = 0;
           match.events.push({ type: 'match_end', winner });
+        } else if (maxRounds > 0 && played >= maxRounds) {
+          match.phase = 'match_end';
+          match.phaseTimeLeft = 0;
+          match.events.push({ type: 'match_end', winner: null });
         } else {
+          if (!match.sidesSwapped && played === match.roundsToWin - 1) {
+            swapSides(match, game);
+          }
           startRound(match, game, map);
         }
       }
@@ -456,6 +476,33 @@ function endRound(match: MatchState, winner: Team, reason: RoundEndReason): void
   match.phase = 'round_end';
   match.phaseTimeLeft = ROUND_END_TIME_SEC;
   match.events.push({ type: 'round_end', winner, reason });
+}
+
+/**
+ * Halftime: every player switches team, scores follow the players to their
+ * new side, and the economy restarts (start money, no gear, streaks cleared)
+ * so the second half opens like round 1. The following startRound() respawns
+ * everyone at their new team's spawns.
+ */
+function swapSides(match: MatchState, game: GameState): void {
+  match.sidesSwapped = true;
+  for (const p of Object.values(game.players)) {
+    p.team = p.team === 'T' ? 'CT' : 'T';
+    p.slots = defaultLoadout();
+    p.activeSlot = 1;
+    p.armor = 0;
+    p.grenades = [];
+  }
+  const t = match.score.T;
+  match.score.T = match.score.CT;
+  match.score.CT = t;
+  match.lossStreak = { T: 0, CT: 0 };
+  match.pendingPayout = null;
+  for (const stats of Object.values(match.stats)) {
+    stats.money = match.startMoney;
+    stats.hasDefuseKit = false;
+  }
+  match.events.push({ type: 'halftime' });
 }
 
 /**

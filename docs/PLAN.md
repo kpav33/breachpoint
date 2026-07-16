@@ -242,7 +242,7 @@ because of the connection, the server tier, or the code.
 
 ### CS-staple gameplay gaps (audited 2026-07 — these are absent from the code)
 
-- [ ] **Halftime side swap:** no team-swap logic exists in `src/match/` — a first-to-13 match plays every round on the same side, which is unfair on asymmetric defuse maps. Swap teams (and reset economy) after round 12. Biggest gameplay gap. Note: adding halftime makes a 12–12 draw possible — decide draw vs simple overtime then (today first-to-13 with no swap can't draw)
+- [x] **Halftime side swap:** no team-swap logic exists in `src/match/` — a first-to-13 match plays every round on the same side, which is unfair on asymmetric defuse maps. Swap teams (and reset economy) after round 12. Biggest gameplay gap. Note: adding halftime makes a 12–12 draw possible — decide draw vs simple overtime then (today first-to-13 with no swap can't draw) — **done:** `swapSides()` in MatchState fires after roundsToWin−1 rounds (scores follow the players, economy/streaks/gear reset, `halftime` event → SWITCHING SIDES banner + roster/view rebuild on both client and server). 12–12 (generally (rtw−1)-all) is a **draw** (`match_end` with `winner: null`, "MATCH DRAWN" banner); overtime stays a backlog idea
 - [ ] **Weapon drop / pickup:** only the *bomb* drops on death (`MatchState`). Guns should drop as world entities and be picked up by walking over them (+ manual drop key, G) — eco-round scavenging and passing a teammate a rifle are core CS economy moves
 - [ ] **Damage direction indicator** (carried over from Phase 5 — still the only unbuilt Phase 5 item)
 - [ ] **Mouse sensitivity + keybind settings** (carried over from Phase 8 — settings panel only has volume and bot difficulty)
@@ -265,6 +265,8 @@ because of the connection, the server tier, or the code.
 ## Phase 10 — Post-launch niceties (backlog)
 
 Browsable live room list in the lobby (needs a Colyseus `LobbyRoom` — deferred from Phase 9c) · spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
+
+**2.5D look (worth a prototype):** keep the top-down camera and the 2D sim exactly as-is, but render walls with fake height — floor footprint + extruded side faces shearing away from the camera center (GTA1/Hotline Miami style), plus drop shadows under players. Pure rendering change confined to `MapLoader`/the render layer: world x/y still maps straight to screen x/y, so aiming, fog, and the minimap keep working untouched. Prototype on one map before committing; do it after the Phase 9.5 replay tests exist to prove the sim stayed untouched.
 
 **Utility practice mode** (the CS "grenade practice map" experience — learning lineups is core to competitive play): an offline sandbox on any map with no bots/rounds, infinite money and grenades, a toggleable grenade trajectory preview (draw the predicted arc + landing spot before throwing — the sim's projectile step is deterministic, so the client can just dry-run it), post-throw trail rendering, smoke/flash coverage visualization, and a "rethrow last grenade" key. Most of it is client-only debug-overlay-style drawing on top of the existing offline GameScene.
 

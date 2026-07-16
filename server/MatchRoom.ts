@@ -482,7 +482,10 @@ export class MatchRoom extends Room {
       }
     }
     for (const ev of matchEvents) {
-      if (ev.type === 'round_start') {
+      if (ev.type === 'halftime') {
+        // Teams flipped inside the sim: re-sort rosters + bot enemy lists.
+        this.rebuildRoster();
+      } else if (ev.type === 'round_start') {
         for (const bot of Object.values(this.bots)) bot.reset();
         this.autoBuyBots();
         this.publishMetadata();

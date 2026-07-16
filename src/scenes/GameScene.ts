@@ -616,10 +616,15 @@ export class GameScene extends Phaser.Scene implements HudSource {
   }
 
   private drainMatchEvents(): void {
+    let halftime = false;
     for (const ev of this.match.events) {
       switch (ev.type) {
         case 'round_start':
           this.onRoundStart();
+          break;
+        case 'halftime':
+          this.onHalftime();
+          halftime = true;
           break;
         case 'round_end': {
           const reasonText = {
@@ -643,8 +648,10 @@ export class GameScene extends Phaser.Scene implements HudSource {
           this.setBanner(
             {
               eyebrow: `FINAL · T ${this.match.score.T} : ${this.match.score.CT} CT`,
-              eyebrowColor: FACTION_CSS[ev.winner],
-              headline: `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`,
+              eyebrowColor: ev.winner ? FACTION_CSS[ev.winner] : undefined,
+              headline: ev.winner
+                ? `${ev.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS'} WIN THE MATCH`
+                : 'MATCH DRAWN',
               sub: 'ESC — quit to menu',
             },
             Number.POSITIVE_INFINITY,
@@ -682,6 +689,36 @@ export class GameScene extends Phaser.Scene implements HudSource {
       }
     }
     this.match.events.length = 0;
+
+    // Set after the loop: the round_start that follows halftime in the same
+    // batch clears the banner in onRoundStart(), so this must land last.
+    if (halftime) {
+      this.setBanner(
+        {
+          eyebrow: 'HALFTIME',
+          headline: 'SWITCHING SIDES',
+          sub: `economy reset · first to ${this.match.roundsToWin} wins`,
+        },
+        4000,
+      );
+    }
+  }
+
+  /** Sides swapped in the sim: re-sort rosters, re-point bots, redo views. */
+  protected onHalftime(): void {
+    this.tIds = [];
+    this.ctIds = [];
+    for (const p of Object.values(this.state.players)) {
+      (p.team === 'T' ? this.tIds : this.ctIds).push(p.id);
+    }
+    for (const id of this.tIds) this.bots[id]?.setEnemies(this.ctIds);
+    for (const id of this.ctIds) this.bots[id]?.setEnemies(this.tIds);
+    // PlayerView bakes the faction color at construction — rebuild them.
+    for (const [id, view] of Object.entries(this.views)) {
+      view.destroy();
+      const p = this.state.players[id];
+      this.views[id] = new PlayerView(this, p.pos.x, p.pos.y, p.team, id === this.humanId);
+    }
   }
 
   /** New round: everyone is back (match already respawned them). */
