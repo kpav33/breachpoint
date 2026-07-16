@@ -75,8 +75,11 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
+    // Row spacing tightened from 62 so the practice row still fits above
+    // the map/settings block.
+    const rowGap = 58;
     MODES.forEach((mode, i) => {
-      this.button(w / 2, h * 0.48 + i * 62, mode.label, mode.sub, () => {
+      this.button(w / 2, h * 0.48 + i * rowGap, mode.label, mode.sub, () => {
         const config: GameConfig = {
           roundsToWin: mode.roundsToWin,
           mapKey: MAPS[this.mapIndex],
@@ -86,12 +89,26 @@ export class MenuScene extends Phaser.Scene {
     });
 
     // Online (Phase 9): quick play, host private, or join by code.
-    this.button(w / 2, h * 0.48 + MODES.length * 62, 'ONLINE', 'play against other people', () => {
+    this.button(w / 2, h * 0.48 + MODES.length * rowGap, 'ONLINE', 'play against other people', () => {
       this.scene.start('Lobby');
     });
 
+    // Utility practice (Phase 10): solo sandbox, infinite grenades.
+    this.button(
+      w / 2,
+      h * 0.48 + (MODES.length + 1) * rowGap,
+      'PRACTICE',
+      'utility sandbox · grenade lineups',
+      () => {
+        this.scene.start('Practice', {
+          roundsToWin: ROUNDS_TO_WIN,
+          mapKey: MAPS[this.mapIndex],
+        } satisfies GameConfig);
+      },
+    );
+
     // Map select row.
-    const mapY = h * 0.48 + (MODES.length + 1) * 62 + 8;
+    const mapY = h * 0.48 + (MODES.length + 2) * rowGap + 8;
     this.add
       .text(w / 2 - 90, mapY, 'MAP', { fontFamily: FONT_DISPLAY, fontSize: '14px', fontStyle: '600', color: TEXT_3 })
       .setOrigin(1, 0.5);

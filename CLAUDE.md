@@ -19,7 +19,7 @@ The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the
 - `src/core/` — pure simulation: types, config, simulation, collision, raycast, weapons
 - `src/ai/` — headless bot brains (`BotController`) + objective assignment, shared by client and server (no Phaser)
 - `src/game/` — Phaser-side: entities, systems (input, vision, effects, audio), map loading
-- `src/scenes/` — Boot, Menu, Lobby, Game (thin orchestrator; OnlineGame subclasses it), UI (HUD, parallel scene), Pause (overlay)
+- `src/scenes/` — Boot, Menu, Lobby, Game (thin orchestrator; OnlineGame and Practice subclass it), UI (HUD, parallel scene), Pause (overlay)
 - `src/match/` — rounds, economy, bomb logic, game modes (headless — runs on the server)
 - `src/net/` — wire protocol (`protocol.ts`, shared with the server) + browser Colyseus client wrapper
 - `server/` — authoritative Colyseus server; imports `src/core` + `src/match` + `src/ai` via relative paths, no Phaser (ESLint-enforced)

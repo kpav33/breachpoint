@@ -465,7 +465,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
   }
 
-  private buildBuyMenu(): BuyMenuItem[] {
+  protected buildBuyMenu(): BuyMenuItem[] {
     const me = this.state.players[this.humanId];
     const stats = this.match.stats[this.humanId];
     return BUY_ITEMS.map(({ item, label }) => {
@@ -749,7 +749,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     }
   }
 
-  private setBanner(banner: Banner, ttl: number): void {
+  protected setBanner(banner: Banner, ttl: number): void {
     this.banner = { ...banner, ttl };
   }
 

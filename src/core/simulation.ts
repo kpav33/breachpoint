@@ -150,17 +150,46 @@ function tryThrow(state: GameState, p: PlayerState, type: GrenadeType): void {
   const idx = p.grenades.indexOf(type);
   if (idx < 0) return;
   p.grenades.splice(idx, 1);
-  const dir = { x: Math.cos(p.angle), y: Math.sin(p.angle) };
+  spawnGrenade(state, p.id, p.pos, p.angle, type);
+  p.fireCooldown = Math.max(p.fireCooldown, GRENADE_THROW_LOCKOUT_SEC);
+}
+
+/** Launch kinematics shared by the real throw and the trajectory preview. */
+function grenadeLaunch(
+  from: Vec2,
+  angle: number,
+  type: GrenadeType,
+): { pos: Vec2; vel: Vec2; fuse: number } {
+  const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+  return {
+    pos: { x: from.x + dir.x * (PLAYER_RADIUS + 4), y: from.y + dir.y * (PLAYER_RADIUS + 4) },
+    vel: { x: dir.x * GRENADE_THROW_SPEED, y: dir.y * GRENADE_THROW_SPEED },
+    fuse: GRENADES[type].fuseSec,
+  };
+}
+
+/**
+ * Put a live grenade into the world, thrown from `from` toward `angle`.
+ * tryThrow routes through here; practice mode's "rethrow last" calls it
+ * directly with a recorded position/angle.
+ */
+export function spawnGrenade(
+  state: GameState,
+  ownerId: string,
+  from: Vec2,
+  angle: number,
+  type: GrenadeType,
+): void {
+  const l = grenadeLaunch(from, angle, type);
   state.projectiles.push({
     id: state.nextProjectileId++,
     type,
-    ownerId: p.id,
-    pos: { x: p.pos.x + dir.x * (PLAYER_RADIUS + 4), y: p.pos.y + dir.y * (PLAYER_RADIUS + 4) },
-    vel: { x: dir.x * GRENADE_THROW_SPEED, y: dir.y * GRENADE_THROW_SPEED },
-    fuse: GRENADES[type].fuseSec,
+    ownerId,
+    pos: l.pos,
+    vel: l.vel,
+    fuse: l.fuse,
   });
-  p.fireCooldown = Math.max(p.fireCooldown, GRENADE_THROW_LOCKOUT_SEC);
-  state.events.push({ type: 'grenade_throw', playerId: p.id, gtype: type, from: { ...p.pos } });
+  state.events.push({ type: 'grenade_throw', playerId: ownerId, gtype: type, from: { ...from } });
 }
 
 /**
@@ -168,21 +197,9 @@ function tryThrow(state: GameState, p: PlayerState, type: GrenadeType): void {
  * Call once per tick after all players' applyInput.
  */
 export function stepWorld(state: GameState, map: SimMap, dt: number): void {
-  const friction = Math.exp(-GRENADE_FRICTION * dt);
   for (let i = state.projectiles.length - 1; i >= 0; i--) {
     const g = state.projectiles[i];
-
-    // Axis-separated move with damped wall bounces.
-    const nx = g.pos.x + g.vel.x * dt;
-    if (grenadeHitsWall(map, nx, g.pos.y)) g.vel.x = -g.vel.x * 0.55;
-    else g.pos.x = nx;
-    const ny = g.pos.y + g.vel.y * dt;
-    if (grenadeHitsWall(map, g.pos.x, ny)) g.vel.y = -g.vel.y * 0.55;
-    else g.pos.y = ny;
-    g.vel.x *= friction;
-    g.vel.y *= friction;
-
-    g.fuse -= dt;
+    stepGrenade(g, map, dt);
     if (g.fuse > 0) continue;
     state.projectiles.splice(i, 1);
     if (g.type === 'he') {
@@ -197,6 +214,51 @@ export function stepWorld(state: GameState, map: SimMap, dt: number): void {
     state.smokes[i].timeLeft -= dt;
     if (state.smokes[i].timeLeft <= 0) state.smokes.splice(i, 1);
   }
+}
+
+/**
+ * Integrate one grenade for one tick: axis-separated move with damped wall
+ * bounces, friction, fuse. Shared verbatim by the live world step and the
+ * trajectory preview so the predicted arc can never drift from reality.
+ */
+export function stepGrenade(
+  g: { pos: Vec2; vel: Vec2; fuse: number },
+  map: SimMap,
+  dt: number,
+): void {
+  const friction = Math.exp(-GRENADE_FRICTION * dt);
+  const nx = g.pos.x + g.vel.x * dt;
+  if (grenadeHitsWall(map, nx, g.pos.y)) g.vel.x = -g.vel.x * 0.55;
+  else g.pos.x = nx;
+  const ny = g.pos.y + g.vel.y * dt;
+  if (grenadeHitsWall(map, g.pos.x, ny)) g.vel.y = -g.vel.y * 0.55;
+  else g.pos.y = ny;
+  g.vel.x *= friction;
+  g.vel.y *= friction;
+  g.fuse -= dt;
+}
+
+/**
+ * Dry-run a throw from `from` toward `angle` at the fixed tick rate and
+ * return the arc, one point per tick; the last point is where the fuse
+ * expires (landing/detonation spot). Pure — touches no game state.
+ */
+export function predictGrenadePath(
+  from: Vec2,
+  angle: number,
+  type: GrenadeType,
+  map: SimMap,
+  dt: number,
+): Vec2[] {
+  const g = grenadeLaunch(from, angle, type);
+  const points: Vec2[] = [{ x: g.pos.x, y: g.pos.y }];
+  // Fuses are ~1–2s; the guard only exists to survive a bad dt.
+  let guard = 1000;
+  while (g.fuse > 0 && guard-- > 0) {
+    stepGrenade(g, map, dt);
+    points.push({ x: g.pos.x, y: g.pos.y });
+  }
+  return points;
 }
 
 function grenadeHitsWall(map: SimMap, x: number, y: number): boolean {
