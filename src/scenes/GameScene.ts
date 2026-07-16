@@ -133,7 +133,13 @@ export class GameScene extends Phaser.Scene implements HudSource {
   private banner: (Banner & { ttl: number }) | null = null;
   private lastPlantPos: Vec2 = { x: 0, y: 0 };
   private beepAcc = 0;
-  private followedId: string | null = null;
+  /**
+   * The view the camera is attached to. Tracked by object identity, not
+   * player id: halftime (and online roster churn) destroys and rebuilds
+   * PlayerViews, and a camera left following a destroyed view silently
+   * freezes in place while an id check would say "already following".
+   */
+  private followedView: PlayerView | null = null;
   private smokeGfx!: Phaser.GameObjects.Graphics;
   private flashRect!: Phaser.GameObjects.Rectangle;
   /** Seconds of local flashbang whiteout remaining. */
@@ -168,7 +174,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.banner = null;
     this.damageIndicators = [];
     this.accumulator = 0;
-    this.followedId = null;
+    this.followedView = null;
     this.botsFrozen = false;
     this.blindLeft = 0;
     this.frameSegments = [];
@@ -863,9 +869,10 @@ export class GameScene extends Phaser.Scene implements HudSource {
   }
 
   private follow(id: string): void {
-    if (this.followedId === id) return;
-    this.followedId = id;
-    this.cameras.main.startFollow(this.views[id]);
+    const view = this.views[id];
+    if (!view || view === this.followedView) return;
+    this.followedView = view;
+    this.cameras.main.startFollow(view);
   }
 
   /** Enemies (and dead bodies) hide behind the fog's rules. */

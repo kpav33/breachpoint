@@ -175,6 +175,18 @@ export class UIScene extends Phaser.Scene {
 
   init(data: { source: HudSource }): void {
     this.source = data.source;
+    // Phaser reuses scene instances without re-running the constructor, so
+    // class-field collections survive restarts. Clear anything that create()
+    // appends to — stale entries point at DESTROYED game objects, and e.g.
+    // setColor on a destroyed Text throws inside the renderer, wedging the
+    // whole scene manager (the "frozen game until page reload" bug).
+    this.buyRows = [];
+    this.killFeed = [];
+    this.chatLines = [];
+    this.buyMenuShown = null;
+    this.chatOpen = false;
+    this.chatTeamOnly = false;
+    this.chatBuffer = '';
   }
 
   private dataStyle(size: number, color = TEXT_1, weight = '600'): Phaser.Types.GameObjects.Text.TextStyle {
