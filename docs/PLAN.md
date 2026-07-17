@@ -8,6 +8,7 @@
 - **Vision:** ~110° view-cone in the aim direction + small 360° awareness circle (2–3 tiles). Implemented as full visibility polygon ∩ cone, behind a config flag — full-circle mode kept as an easy/testing option.
 - **Economy:** simplified four-number model (start money, flat kill reward, win reward, escalating loss bonus). Full CS-style economy deferred to Phase 9+ when human teammates make save/force decisions meaningful.
 - **Art direction:** flat geometric/vector style — circle players with weapon rect + direction notch, clean-lined walls, solid-color floors. No pixel art, no sprite animation frames. Visual appeal comes from the Phase 5 juice layer (tracers, shake, particles, decals). Rendering is decoupled from simulation, so real sprites can replace shapes later without touching game logic.
+- **Friendly fire: off for launch** (`FRIENDLY_FIRE` in `core/config.ts`; with it off, bullets pass *through* teammates and HE blasts skip them — but your own HE still hurts you, and the bomb damages everyone). CS turns FF on only in competitive, backed by anti-grief tooling we don't have. Revisit post-launch as a **per-match option** (competitive-style ruleset), which requires: moving the flag from compile-time config into match/room settings (protocol bump), bot trigger discipline (bots don't check for teammates in the firing line — with FF on they'd routinely shoot you), and some team-damage penalty online. Note the gameplay shift when it flips: teammates become bullet-blocking cover.
 
 ---
 
