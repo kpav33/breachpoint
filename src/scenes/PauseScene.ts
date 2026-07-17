@@ -51,8 +51,9 @@ export class PauseScene extends Phaser.Scene {
     this.settingsPanel = new SettingsPanel(this, w / 2 + 330, h / 2);
 
     this.input.keyboard!.on('keydown-ESC', () => {
-      // A rebind capture consumes the ESC (cancel) instead of resuming.
-      if (!this.settingsPanel.isCapturing) this.resume();
+      // Settings first: ESC cancels a rebind capture or closes the panel
+      // before it ever resumes the game.
+      if (!this.settingsPanel.handleEscape()) this.resume();
     });
   }
 

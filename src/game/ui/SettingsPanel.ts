@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { BotDifficulty } from '../../core/config';
+import { GAME_WIDTH, GAME_HEIGHT } from '../display';
 import { BIND_ACTIONS, BIND_LABELS, keyDisplayName, loadSettings, saveSettings } from '../settings';
 import type { BindAction, Settings } from '../settings';
 import {
@@ -25,9 +26,15 @@ const ROW_H = 24;
  * ◄ value ► rows, plus click-to-rebind keybinds. Changes persist
  * immediately; volume applies live, keybinds apply on match (re)entry —
  * GameScene reloads them when the pause overlay closes.
+ *
+ * Presented as a modal: a dimmed backdrop swallows outside clicks (and
+ * closes the panel), and it also closes via the ✕ button or ESC — the
+ * owning scene routes ESC through handleEscape().
  */
 export class SettingsPanel {
   readonly container: Phaser.GameObjects.Container;
+  /** Dimmed full-screen layer under the panel; click = close. */
+  private readonly backdrop: Phaser.GameObjects.Rectangle;
   private settings: Settings;
   private volumeValue!: Phaser.GameObjects.Text;
   private difficultyValue!: Phaser.GameObjects.Text;
@@ -43,11 +50,23 @@ export class SettingsPanel {
     this.settings = loadSettings();
     scene.sound.volume = this.settings.volume;
 
+    // Backdrop below the panel: dims the scene, and (with the input
+    // manager's topOnly default) any click outside the panel lands here
+    // and closes it — nothing behind the modal can be pressed by accident.
+    this.backdrop = scene.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.35)
+      .setDepth(49)
+      .setVisible(false)
+      .setInteractive()
+      .on('pointerdown', () => this.close());
+
     const w = PANEL_W;
     const h = 168 + BIND_ACTIONS.length * ROW_H + 26;
     const bg = scene.add
       .rectangle(0, 0, w, h, PANEL_FILL, PANEL_ALPHA)
-      .setStrokeStyle(1, LINE, 1);
+      .setStrokeStyle(1, LINE, 1)
+      // Swallow clicks on the panel body so they don't reach the backdrop.
+      .setInteractive();
     const title = scene.add
       .text(-w / 2 + 20, -h / 2 + 14, 'SETTINGS', {
         fontFamily: FONT_DISPLAY,
@@ -56,8 +75,20 @@ export class SettingsPanel {
         color: TEXT_1,
       })
       .setOrigin(0, 0);
+    const closeBtn = scene.add
+      .text(w / 2 - 16, -h / 2 + 12, '✕', {
+        fontFamily: FONT_DISPLAY,
+        fontSize: '15px',
+        fontStyle: '700',
+        color: TEXT_2,
+      })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => closeBtn.setColor(FACTION_CSS.T))
+      .on('pointerout', () => closeBtn.setColor(TEXT_2))
+      .on('pointerdown', () => this.close());
 
-    this.container = scene.add.container(x, y, [bg, title]).setDepth(50).setVisible(false);
+    this.container = scene.add.container(x, y, [bg, title, closeBtn]).setDepth(50).setVisible(false);
 
     const top = -h / 2;
     this.volumeValue = this.addArrowRow(top + 48, 'VOLUME', w, () => this.bumpVolume(-0.1), () => this.bumpVolume(0.1));
@@ -198,9 +229,39 @@ export class SettingsPanel {
   }
 
   toggle(): void {
+    if (this.container.visible) {
+      this.close();
+      return;
+    }
     this.capturing = null;
-    this.container.setVisible(!this.container.visible);
+    this.container.setVisible(true);
+    this.backdrop.setVisible(true);
     this.refresh();
+  }
+
+  /** Close the panel (✕ button, backdrop click, ESC). Safe when hidden. */
+  close(): void {
+    if (!this.container.visible) return;
+    this.capturing = null;
+    this.container.setVisible(false);
+    this.backdrop.setVisible(false);
+    this.refresh();
+  }
+
+  /**
+   * The owning scene's ESC handler calls this first; true = the press was
+   * the panel's (a rebind capture being cancelled, or the panel closing)
+   * and the scene must not act on it. Capture cancel itself happens in
+   * this panel's generic keydown listener, which fires after the scene's
+   * keydown-ESC.
+   */
+  handleEscape(): boolean {
+    if (this.capturing !== null) return true;
+    if (this.container.visible) {
+      this.close();
+      return true;
+    }
+    return false;
   }
 
   get visible(): boolean {

@@ -122,6 +122,7 @@ export class MenuScene extends Phaser.Scene {
     this.button(w / 2, mapY + 66, 'SETTINGS', null, () => this.settingsPanel.toggle());
 
     this.settingsPanel = new SettingsPanel(this, w / 2, h * 0.52);
+    this.input.keyboard?.on('keydown-ESC', () => this.settingsPanel.handleEscape());
 
     this.add
       .text(w / 2, h - 24, controlsHint(), {
