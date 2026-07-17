@@ -15,6 +15,7 @@ import type {
   WeaponSlot,
 } from '../core/types.ts';
 import type { MapData } from '../core/map.ts';
+import { spawnZoneRect } from '../core/map.ts';
 import { isWall } from '../core/collision.ts';
 import { damagePlayer, nextRand, respawnPlayer } from '../core/simulation.ts';
 import { defaultLoadout, givePrimary, makeSlot } from '../core/weapons.ts';
@@ -29,6 +30,7 @@ import {
   BOMB_PLANT_TIME_SEC,
   BOMB_RADIUS_PX,
   BOMB_TIMER_SEC,
+  BUY_GRACE_SEC,
   BUY_TIME_SEC,
   DEFUSE_KIT_PRICE,
   GRENADES,
@@ -110,6 +112,12 @@ export interface MatchState {
   /** Guns on the ground this round (cleared at round start). */
   droppedWeapons: DroppedWeapon[];
   nextDropId: number;
+  /**
+   * Items each player bought this round's buy window — the only things
+   * trySell will refund. Cleared at round start, so carried-over and
+   * scavenged gear is never sellable.
+   */
+  purchases: Record<string, BuyItem[]>;
   /** Which bombsite the T side is hitting this round (index into map.bombsites). */
   targetSite: number;
   lastRound: { winner: Team; reason: RoundEndReason } | null;
@@ -151,6 +159,7 @@ export function createMatchState(
     bomb: emptyBomb(),
     droppedWeapons: [],
     nextDropId: 1,
+    purchases: {},
     targetSite: 0,
     lastRound: null,
     pendingPayout: null,
@@ -158,9 +167,30 @@ export function createMatchState(
   };
 }
 
-/** Players may buy only here (and are frozen in place). */
-export function canBuy(match: MatchState): boolean {
-  return match.phase === 'buy';
+/**
+ * When buying (and refunding) is allowed: the buy phase, or the first
+ * BUY_GRACE_SEC of LIVE while the player is inside their team's spawn zone
+ * — mirroring CS's buy time + buy zone. The plant ends the grace early
+ * (the round clock freezes then, so time-elapsed alone would never expire).
+ */
+export function canBuy(
+  match: MatchState,
+  game: GameState,
+  map: MapData,
+  playerId: string,
+): boolean {
+  if (match.phase === 'buy') return true;
+  if (match.phase !== 'live' || match.bomb.plantedAt) return false;
+  if (ROUND_TIME_SEC - match.phaseTimeLeft > BUY_GRACE_SEC) return false;
+  const p = game.players[playerId];
+  if (!p) return false;
+  const zone = spawnZoneRect(map, p.team);
+  return (
+    p.pos.x >= zone.x &&
+    p.pos.x <= zone.x + zone.width &&
+    p.pos.y >= zone.y &&
+    p.pos.y <= zone.y + zone.height
+  );
 }
 
 /** True while inputs should be reduced to aiming only. */
@@ -184,16 +214,18 @@ function addMoney(stats: PlayerMatchStats, amount: number): void {
 export type BuyItem = WeaponId | GrenadeType | 'kit' | 'armor';
 
 /**
- * Buy a weapon, armor or a defuse kit during BUY. Mutates loadout + money;
- * returns false (with no change) when the purchase is not allowed.
+ * Buy a weapon, armor or a defuse kit while buying is open (see canBuy).
+ * Mutates loadout + money and records the purchase (for trySell); returns
+ * false (with no change) when the purchase is not allowed.
  */
 export function tryBuy(
   match: MatchState,
   game: GameState,
+  map: MapData,
   playerId: string,
   item: BuyItem,
 ): boolean {
-  if (!canBuy(match)) return false;
+  if (!canBuy(match, game, map, playerId)) return false;
   const p = game.players[playerId];
   const stats = match.stats[playerId];
   if (!p || !stats || p.hp <= 0) return false;
@@ -202,6 +234,7 @@ export function tryBuy(
     if (p.team !== 'CT' || stats.hasDefuseKit || stats.money < DEFUSE_KIT_PRICE) return false;
     stats.money -= DEFUSE_KIT_PRICE;
     stats.hasDefuseKit = true;
+    recordPurchase(match, playerId, item);
     return true;
   }
 
@@ -209,6 +242,7 @@ export function tryBuy(
     if (p.armor >= ARMOR_MAX || stats.money < ARMOR_PRICE) return false;
     stats.money -= ARMOR_PRICE;
     p.armor = ARMOR_MAX;
+    recordPurchase(match, playerId, item);
     return true;
   }
 
@@ -216,6 +250,7 @@ export function tryBuy(
     if (p.grenades.includes(item) || stats.money < GRENADES[item].price) return false;
     stats.money -= GRENADES[item].price;
     p.grenades.push(item);
+    recordPurchase(match, playerId, item);
     return true;
   }
 
@@ -237,6 +272,68 @@ export function tryBuy(
     p.activeSlot = 1;
     p.reloadRemaining = 0;
   }
+  recordPurchase(match, playerId, item);
+  return true;
+}
+
+function recordPurchase(match: MatchState, playerId: string, item: BuyItem): void {
+  (match.purchases[playerId] ??= []).push(item);
+}
+
+/** Is this item refundable for this player right now (bought this round)? */
+export function canSell(match: MatchState, playerId: string, item: BuyItem): boolean {
+  return (match.purchases[playerId] ?? []).includes(item);
+}
+
+/**
+ * Refund an item bought this round at full price, while buying is still
+ * open. The item must still be in the player's possession (an already
+ * thrown grenade or dropped gun is gone for good). Returns false with no
+ * change when the sale is not allowed.
+ */
+export function trySell(
+  match: MatchState,
+  game: GameState,
+  map: MapData,
+  playerId: string,
+  item: BuyItem,
+): boolean {
+  if (!canBuy(match, game, map, playerId)) return false;
+  const p = game.players[playerId];
+  const stats = match.stats[playerId];
+  if (!p || !stats || p.hp <= 0) return false;
+  const bought = match.purchases[playerId] ?? [];
+  const receipt = bought.indexOf(item);
+  if (receipt < 0) return false;
+
+  if (item === 'kit') {
+    if (!stats.hasDefuseKit) return false;
+    stats.hasDefuseKit = false;
+    addMoney(stats, DEFUSE_KIT_PRICE);
+  } else if (item === 'armor') {
+    // Damaged armor (possible during the live grace window) is non-refundable.
+    if (p.armor < ARMOR_MAX) return false;
+    p.armor = 0;
+    addMoney(stats, ARMOR_PRICE);
+  } else if (item === 'he' || item === 'flash' || item === 'smoke') {
+    const idx = p.grenades.indexOf(item);
+    if (idx < 0) return false;
+    p.grenades.splice(idx, 1);
+    addMoney(stats, GRENADES[item].price);
+  } else {
+    // Only items tryBuy accepted ever enter purchases, so this is a WeaponId.
+    const def = WEAPONS[item as WeaponId];
+    if (p.slots[def.slotIndex]?.weaponId !== item) return false;
+    if (def.slotIndex === 2) {
+      p.slots.length = 2;
+    } else {
+      p.slots[1] = makeSlot('pistol');
+    }
+    if (p.activeSlot >= p.slots.length) p.activeSlot = 1;
+    p.reloadRemaining = 0;
+    addMoney(stats, def.price);
+  }
+  bought.splice(receipt, 1);
   return true;
 }
 
@@ -649,6 +746,7 @@ function startRound(match: MatchState, game: GameState, map: MapData): void {
   match.phaseTimeLeft = BUY_TIME_SEC;
   match.bomb = emptyBomb();
   match.droppedWeapons = [];
+  match.purchases = {};
 
   const spawnIdx: Record<Team, number> = { T: 0, CT: 0 };
   const ts: string[] = [];

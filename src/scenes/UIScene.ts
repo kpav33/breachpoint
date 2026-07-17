@@ -27,8 +27,10 @@ export interface BuyMenuItem {
   item: BuyItem;
   label: string;
   price: number;
-  /** Purchasable right now (money, team, not owned). */
+  /** Actionable right now: buyable (money, team, not owned) or refundable. */
   enabled: boolean;
+  /** True = the key refunds this item (bought this round) instead of buying. */
+  sell: boolean;
 }
 
 export interface MinimapDot {
@@ -575,7 +577,7 @@ export class UIScene extends Phaser.Scene {
       const row = this.buyRows[i];
       if (!row) return;
       row.name.setText(item.label.toUpperCase());
-      row.price.setText(`$${item.price}`);
+      row.price.setText(item.sell ? `SELL +$${item.price}` : `$${item.price}`);
       const alpha = item.enabled ? 1 : 0.5;
       row.key.setAlpha(alpha);
       row.name.setAlpha(alpha);

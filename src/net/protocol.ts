@@ -35,12 +35,12 @@ export interface RoomMetadata {
  * embedded state shapes so stale clients get a clear "refresh" error
  * instead of confusing desyncs.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // Client → server messages.
 /** Payload: InputMessage — one per client tick. */
 export const MSG_INPUT = 'input';
-/** Payload: BuyItem — server validates via match/tryBuy. */
+/** Payload: BuyItem — buy/refund toggle, validated via match/tryBuy+trySell. */
 export const MSG_BUY = 'buy';
 /** Payload: Ping — sent every PING_INTERVAL_MS; the server echoes it back. */
 export const MSG_PING = 'ping';

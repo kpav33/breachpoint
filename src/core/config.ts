@@ -39,6 +39,15 @@ export const ROUNDS_TO_WIN = 13;
 export const WARMUP_TIME_SEC = 3;
 /** Buy/freeze time at round start — players can buy but not move. */
 export const BUY_TIME_SEC = 8;
+/**
+ * Grace window after the round goes live during which buying (and
+ * refunding) still works — but only inside your team's spawn zone, and
+ * only until the bomb is planted.
+ */
+export const BUY_GRACE_SEC = 10;
+/** Spawn-zone rectangle = team spawn points padded by this many px. It is
+ * both the drawn orientation zone and the live buy-grace area. */
+export const SPAWN_ZONE_PAD_PX = 44;
 /** LIVE round length; expiry without a plant is a CT win. */
 export const ROUND_TIME_SEC = 100;
 /** Pause between rounds showing the result. */

@@ -1,8 +1,9 @@
 // Pure map-data parsing: Tiled JSON → MapData. No Phaser here — the future
 // server loads the same JSON and runs this same code. Phaser-side rendering
 // of the tilemap lives in game/map/MapLoader.ts.
-import type { MapGrid, Segment, Vec2 } from './types.ts';
+import type { MapGrid, Segment, Team, Vec2 } from './types.ts';
 import { isWall } from './collision.ts';
+import { SPAWN_ZONE_PAD_PX } from './config.ts';
 
 export interface BombsiteRect {
   name: string;
@@ -19,6 +20,23 @@ export interface MapData {
   spawnsT: Vec2[];
   spawnsCT: Vec2[];
   bombsites: BombsiteRect[];
+}
+
+/**
+ * A team's spawn zone: the bounding box of its spawn points, padded. Drawn
+ * as the hatched orientation rectangle AND used as the live buy-grace area
+ * — one source so the visual can never drift from the rule.
+ */
+export function spawnZoneRect(
+  map: MapData,
+  team: Team,
+): { x: number; y: number; width: number; height: number } {
+  const spawns = team === 'T' ? map.spawnsT : map.spawnsCT;
+  const minX = Math.min(...spawns.map((p) => p.x)) - SPAWN_ZONE_PAD_PX;
+  const maxX = Math.max(...spawns.map((p) => p.x)) + SPAWN_ZONE_PAD_PX;
+  const minY = Math.min(...spawns.map((p) => p.y)) - SPAWN_ZONE_PAD_PX;
+  const maxY = Math.max(...spawns.map((p) => p.y)) + SPAWN_ZONE_PAD_PX;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 // Minimal slice of the Tiled JSON format that we consume.

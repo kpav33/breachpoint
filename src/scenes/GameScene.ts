@@ -13,6 +13,7 @@ import {
   SMOKE_RADIUS_PX,
   ARMOR_MAX,
   ARMOR_PRICE,
+  BUY_GRACE_SEC,
   DEFUSE_KIT_PRICE,
   GRENADES,
   PLAYER_MAX_HP,
@@ -25,6 +26,7 @@ import {
 } from '../core/config';
 import type { GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
 import type { MapData } from '../core/map';
+import { spawnZoneRect } from '../core/map';
 import { applyInput, createGameState, createPlayer, stepWorld } from '../core/simulation';
 import { isWall } from '../core/collision';
 import { activeWeapon, currentSpreadDeg, givePrimary } from '../core/weapons';
@@ -32,9 +34,11 @@ import { canSee, smokeSegments } from '../core/vision';
 import {
   aliveCount,
   canBuy,
+  canSell,
   createMatchState,
   movementFrozen,
   tryBuy,
+  trySell,
   updateMatch,
 } from '../match/MatchState';
 import type { BuyItem, MatchState } from '../match/MatchState';
@@ -426,7 +430,10 @@ export class GameScene extends Phaser.Scene implements HudSource {
       action,
       banner: this.banner ?? this.phaseBanner(),
       spectating: subjectId !== this.humanId ? this.names[subjectId] : null,
-      buyMenu: canBuy(this.match) && me.hp > 0 ? this.buildBuyMenu() : null,
+      buyMenu:
+        canBuy(this.match, this.state, this.map, this.humanId) && me.hp > 0
+          ? this.buildBuyMenu()
+          : null,
       scoreboard: this.buildScoreboard(),
       net: this.buildNet(),
     };
@@ -443,8 +450,11 @@ export class GameScene extends Phaser.Scene implements HudSource {
     return null;
   }
 
+  /** Number-key toggle: buy when not owned, refund when bought this round. */
   buy(item: BuyItem): void {
-    tryBuy(this.match, this.state, this.humanId, item);
+    if (!tryBuy(this.match, this.state, this.map, this.humanId, item)) {
+      trySell(this.match, this.state, this.map, this.humanId, item);
+    }
   }
 
   getGrid(): MapGrid {
@@ -481,7 +491,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
         return {
           eyebrow: `ROUND ${this.match.round}`,
           headline: 'BUY TIME',
-          sub: 'press 1–4 to buy · movement unlocks at round start',
+          sub: 'press 1–0 to buy · press again to refund · buys stay open briefly at your spawn',
         };
       default:
         return null;
@@ -494,20 +504,28 @@ export class GameScene extends Phaser.Scene implements HudSource {
     return BUY_ITEMS.map(({ item, label }) => {
       let price: number;
       let owned: boolean;
+      /** Still in possession, exactly as trySell will verify it. */
+      let held: boolean;
       if (item === 'kit') {
         price = DEFUSE_KIT_PRICE;
         owned = stats.hasDefuseKit || me.team !== 'CT';
+        held = stats.hasDefuseKit;
       } else if (item === 'armor') {
         price = ARMOR_PRICE;
         owned = me.armor >= ARMOR_MAX;
+        held = me.armor >= ARMOR_MAX;
       } else if (item === 'he' || item === 'flash' || item === 'smoke') {
         price = GRENADES[item].price;
         owned = me.grenades.includes(item);
+        held = owned;
       } else {
         price = WEAPONS[item].price;
         owned = me.slots[WEAPONS[item].slotIndex]?.weaponId === item;
+        held = owned;
       }
-      return { item, label, price, enabled: !owned && stats.money >= price };
+      // The same number key refunds an item bought this round.
+      const sell = held && canSell(this.match, this.humanId, item);
+      return { item, label, price, sell, enabled: sell || (!owned && stats.money >= price) };
     });
   }
 
@@ -765,10 +783,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
   /** Greedy bot spending: best affordable primary, then a kit for CTs. */
   private autoBuyBots(): void {
     for (const id of Object.keys(this.bots)) {
-      if (!tryBuy(this.match, this.state, id, 'rifle')) {
-        tryBuy(this.match, this.state, id, 'smg');
+      if (!tryBuy(this.match, this.state, this.map, id, 'rifle')) {
+        tryBuy(this.match, this.state, this.map, id, 'smg');
       }
-      if (this.state.players[id].team === 'CT') tryBuy(this.match, this.state, id, 'kit');
+      if (this.state.players[id].team === 'CT') {
+        tryBuy(this.match, this.state, this.map, id, 'kit');
+      }
     }
   }
 
@@ -826,26 +846,29 @@ export class GameScene extends Phaser.Scene implements HudSource {
   }
 
   /**
-   * Faction-tinted hatched spawn rectangles, shown during buy/freeze time
-   * and faded out over the first second of LIVE — orient without
-   * cluttering the firefight.
+   * Faction-tinted hatched spawn rectangles: full during buy/freeze time,
+   * held (dimmer) through the live buy-grace window — the rect IS the buy
+   * zone — then faded out so the firefight stays clean. The rect comes from
+   * spawnZoneRect, the same bounds canBuy checks.
    */
   private drawSpawnZones(g: Phaser.GameObjects.Graphics): void {
     let alpha = 0;
     if (this.match.phase === 'buy' || this.match.phase === 'warmup') alpha = 1;
-    else if (this.match.phase === 'live') {
+    else if (this.match.phase === 'live' && !this.match.bomb.plantedAt) {
       const intoLive = ROUND_TIME_SEC - this.match.phaseTimeLeft;
-      alpha = Phaser.Math.Clamp(1 - intoLive / 1.2, 0, 1);
+      alpha =
+        intoLive <= BUY_GRACE_SEC
+          ? 0.55
+          : Phaser.Math.Clamp(1 - (intoLive - BUY_GRACE_SEC) / 1.2, 0, 1) * 0.55;
     }
     if (alpha <= 0) return;
 
-    const pad = 44;
     for (const team of ['T', 'CT'] as const) {
-      const spawns = team === 'T' ? this.map.spawnsT : this.map.spawnsCT;
-      const minX = Math.min(...spawns.map((p) => p.x)) - pad;
-      const maxX = Math.max(...spawns.map((p) => p.x)) + pad;
-      const minY = Math.min(...spawns.map((p) => p.y)) - pad;
-      const maxY = Math.max(...spawns.map((p) => p.y)) + pad;
+      const zone = spawnZoneRect(this.map, team);
+      const minX = zone.x;
+      const minY = zone.y;
+      const maxX = zone.x + zone.width;
+      const maxY = zone.y + zone.height;
       g.lineStyle(2, FACTION[team], 0.4 * alpha);
       g.strokeRect(minX, minY, maxX - minX, maxY - minY);
       g.lineStyle(1, FACTION[team], 0.14 * alpha);

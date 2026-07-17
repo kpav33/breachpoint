@@ -17,7 +17,7 @@ import {
   spawnGrenade,
   stepWorld,
 } from "../core/simulation";
-import { tryBuy } from "../match/MatchState";
+import { tryBuy, trySell } from "../match/MatchState";
 import type { BuyItem } from "../match/MatchState";
 import { PlayerView } from "../game/entities/PlayerView";
 import { keyDisplayName, loadSettings } from "../game/settings";
@@ -205,7 +205,9 @@ export class PracticeScene extends GameScene {
     // tryBuy is phase-gated to BUY; the sandbox has no phases, so borrow it.
     const phase = this.match.phase;
     this.match.phase = "buy";
-    tryBuy(this.match, this.state, this.humanId, item);
+    if (!tryBuy(this.match, this.state, this.map, this.humanId, item)) {
+      trySell(this.match, this.state, this.map, this.humanId, item);
+    }
     this.match.phase = phase;
   }
 

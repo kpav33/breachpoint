@@ -37,6 +37,7 @@ import {
   handlePlayerDisconnect,
   movementFrozen,
   tryBuy,
+  trySell,
   updateMatch,
 } from '../src/match/MatchState.ts';
 import type { BuyItem, MatchState } from '../src/match/MatchState.ts';
@@ -423,8 +424,11 @@ export class MatchRoom extends Room {
 
   private onBuy(client: Client, item: unknown): void {
     if (typeof item !== 'string') return;
-    // tryBuy validates phase/team/money/legality and rejects unknown items.
-    tryBuy(this.match, this.game, client.sessionId, item as BuyItem);
+    // Buy/refund toggle. tryBuy validates phase/zone/team/money/legality and
+    // rejects unknown items; trySell only refunds items tryBuy recorded.
+    if (!tryBuy(this.match, this.game, this.map, client.sessionId, item as BuyItem)) {
+      trySell(this.match, this.game, this.map, client.sessionId, item as BuyItem);
+    }
   }
 
   /** Echo the client's timestamp back verbatim; the client computes the RTT. */
@@ -633,8 +637,12 @@ export class MatchRoom extends Room {
   /** Greedy bot spending at round start: best affordable primary, CTs a kit. */
   private autoBuyBots(): void {
     for (const id of Object.keys(this.bots)) {
-      if (!tryBuy(this.match, this.game, id, 'rifle')) tryBuy(this.match, this.game, id, 'smg');
-      if (this.game.players[id]?.team === 'CT') tryBuy(this.match, this.game, id, 'kit');
+      if (!tryBuy(this.match, this.game, this.map, id, 'rifle')) {
+        tryBuy(this.match, this.game, this.map, id, 'smg');
+      }
+      if (this.game.players[id]?.team === 'CT') {
+        tryBuy(this.match, this.game, this.map, id, 'kit');
+      }
     }
   }
 

@@ -10,13 +10,15 @@ import {
   BOMB_DEFUSE_TIME_SEC,
   BOMB_PLANT_TIME_SEC,
   BOMB_TIMER_SEC,
+  ARMOR_MAX,
+  BUY_GRACE_SEC,
   KILL_REWARD,
   LOSS_BONUS_BASE,
   LOSS_BONUS_STEP,
   WEAPONS,
   WIN_REWARD,
 } from '../src/core/config.ts';
-import { createMatchState, tryBuy, updateMatch } from '../src/match/MatchState.ts';
+import { createMatchState, tryBuy, trySell, updateMatch } from '../src/match/MatchState.ts';
 
 const map = parseTiledMap(
   JSON.parse(readFileSync(new URL('../public/assets/maps/de_yard.json', import.meta.url), 'utf8')),
@@ -47,28 +49,28 @@ const useCmd = { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.Use 
   advance(match, game, 6); // warmup → buy phase
   check(match.phase === 'buy', 'reached buy phase');
 
-  check(!tryBuy(match, game, 't1', '__proto__'), '__proto__ rejected');
-  check(!tryBuy(match, game, 't1', 'toString'), 'inherited key rejected');
-  check(!tryBuy(match, game, 't1', 'knife'), 'the knife is not for sale');
+  check(!tryBuy(match, game, map, 't1', '__proto__'), '__proto__ rejected');
+  check(!tryBuy(match, game, map, 't1', 'toString'), 'inherited key rejected');
+  check(!tryBuy(match, game, map, 't1', 'knife'), 'the knife is not for sale');
   check(game.players.t1.slots.length === 2 && match.stats.t1.money === 800, 'no side effects');
 
-  check(!tryBuy(match, game, 't1', 'kit'), 'Ts cannot buy a defuse kit');
-  check(tryBuy(match, game, 'c1', 'kit'), 'CTs can');
-  check(!tryBuy(match, game, 'c1', 'kit'), 'no double kit');
+  check(!tryBuy(match, game, map, 't1', 'kit'), 'Ts cannot buy a defuse kit');
+  check(tryBuy(match, game, map, 'c1', 'kit'), 'CTs can');
+  check(!tryBuy(match, game, map, 'c1', 'kit'), 'no double kit');
 
-  check(!tryBuy(match, game, 't1', 'sniper'), 'cannot afford the sniper on start money');
-  check(tryBuy(match, game, 't1', 'deagle'), 'secondary upgrade allowed');
+  check(!tryBuy(match, game, map, 't1', 'sniper'), 'cannot afford the sniper on start money');
+  check(tryBuy(match, game, map, 't1', 'deagle'), 'secondary upgrade allowed');
   check(match.stats.t1.money === 800 - WEAPONS.deagle.price, 'money deducted');
-  check(!tryBuy(match, game, 't1', 'deagle'), 'already owned');
+  check(!tryBuy(match, game, map, 't1', 'deagle'), 'already owned');
 
   match.stats.t1.money = 500; // top up (deagle left only $100)
-  check(tryBuy(match, game, 't1', 'flash'), 'grenade purchase');
-  check(!tryBuy(match, game, 't1', 'flash'), 'no duplicate grenade of one type');
+  check(tryBuy(match, game, map, 't1', 'flash'), 'grenade purchase');
+  check(!tryBuy(match, game, map, 't1', 'flash'), 'no duplicate grenade of one type');
 
   // Outside buy time nothing sells.
   advance(match, game, 20);
   check(match.phase === 'live', 'reached live');
-  check(!tryBuy(match, game, 't1', 'smg'), 'no buying during live');
+  check(!tryBuy(match, game, map, 't1', 'smg'), 'no buying during live');
 }
 
 // --- Economy: win reward + escalating loss bonus -------------------------------
@@ -190,6 +192,69 @@ const useCmd = { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.Use 
   // The stray events must not be re-processed on later ticks (double count).
   advance(match, game, 0.5);
   check(match.stats.c1.deaths === deathsBefore + 1, 'blast death not double-counted');
+}
+
+// --- Sell-back (refunds) -------------------------------------------------------
+{
+  const { game, match } = setup();
+  advance(match, game, 6); // warmup → buy phase
+  const t1 = match.stats.t1;
+  const c1 = match.stats.c1;
+
+  tryBuy(match, game, map, 't1', 'deagle');
+  check(trySell(match, game, map, 't1', 'deagle'), 'weapon refund accepted');
+  check(t1.money === 800, 'weapon refund restores full price');
+  check(game.players.t1.slots[1].weaponId === 'pistol', 'secondary reverted to pistol');
+  check(!trySell(match, game, map, 't1', 'deagle'), 'no double refund');
+
+  tryBuy(match, game, map, 't1', 'smoke');
+  check(trySell(match, game, map, 't1', 'smoke') && t1.money === 800, 'grenade refund');
+  check(!game.players.t1.grenades.includes('smoke'), 'grenade removed on refund');
+
+  tryBuy(match, game, map, 'c1', 'kit');
+  check(trySell(match, game, map, 'c1', 'kit') && c1.money === 800, 'kit refund');
+  check(!c1.hasDefuseKit, 'kit removed on refund');
+
+  tryBuy(match, game, map, 'c1', 'armor');
+  game.players.c1.armor = 50;
+  check(!trySell(match, game, map, 'c1', 'armor'), 'damaged armor is non-refundable');
+  game.players.c1.armor = ARMOR_MAX;
+  check(trySell(match, game, map, 'c1', 'armor') && c1.money === 800, 'full armor refunds');
+
+  // Carried-over gear is never sellable: survive a round with a bought kit.
+  tryBuy(match, game, map, 'c1', 'kit');
+  advance(match, game, 20); // → live
+  game.players.t1.hp = 0; // CT wins by elimination, c1 survives
+  advance(match, game, 0.2);
+  advance(match, game, 6); // round_end → next buy phase
+  check(match.phase === 'buy' && c1.hasDefuseKit, 'survivor kept the kit');
+  check(!trySell(match, game, map, 'c1', 'kit'), 'carried-over kit is not refundable');
+}
+
+// --- Buy grace period (live, spawn zone only) ----------------------------------
+{
+  const { game, match } = setup();
+  advance(match, game, 6); // buy phase (players respawned at team spawns)
+  match.stats.t1.money = 5000;
+  advance(match, game, 8.05); // → ~3s into live
+  check(match.phase === 'live', 'live for grace test');
+
+  check(tryBuy(match, game, map, 't1', 'rifle'), 'can buy during grace at spawn');
+  check(trySell(match, game, map, 't1', 'rifle'), 'can refund during grace at spawn');
+  check(match.stats.t1.money === 5000, 'grace refund restores price');
+
+  const spawn = { ...game.players.t1.pos };
+  const site = map.bombsites[0];
+  game.players.t1.pos = { x: site.x + site.width / 2, y: site.y + site.height / 2 };
+  check(!tryBuy(match, game, map, 't1', 'rifle'), 'no buying outside the spawn zone');
+  game.players.t1.pos = spawn;
+
+  match.bomb.plantedAt = { x: 0, y: 0 };
+  check(!tryBuy(match, game, map, 't1', 'rifle'), 'a plant closes the grace window');
+  match.bomb.plantedAt = null;
+
+  advance(match, game, BUY_GRACE_SEC); // well past the window
+  check(!tryBuy(match, game, map, 't1', 'rifle'), 'grace window expires');
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
