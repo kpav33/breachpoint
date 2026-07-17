@@ -207,8 +207,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.siteAnchors = buildBotWorld(this.map).siteAnchors;
 
     this.inputSystem = new InputSystem(this);
-    // Keybinds may change in the pause overlay's settings panel.
-    this.events.on('resume', () => this.inputSystem.reloadBinds());
+    // Keybinds may change in the pause overlay's settings panel; and the
+    // click that pressed RESUME must not fire a shot on the first tick.
+    this.events.on('resume', () => {
+      this.inputSystem.reloadBinds();
+      this.inputSystem.suppressPointerUntilRelease();
+    });
     this.effects = new EffectsSystem(this, grid.width * grid.tileSize, grid.height * grid.tileSize);
     this.elevation = new ElevationSystem(this, grid, this.wallsLayer);
     this.vision = new VisionSystem(this, this.map.segments);

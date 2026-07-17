@@ -13,6 +13,8 @@ import type { BindAction, Keybinds } from '../settings';
 export class InputSystem {
   private keys!: Record<BindAction, Phaser.Input.Keyboard.Key>;
   private wheelDelta = 0;
+  /** Ignore the held pointer button until it's released (post-resume). */
+  private pointerSuppressed = false;
 
   constructor(private readonly scene: Phaser.Scene) {
     this.applyBinds(loadSettings().keybinds);
@@ -20,6 +22,15 @@ export class InputSystem {
       'wheel',
       (_p: unknown, _o: unknown, _dx: number, dy: number) => (this.wheelDelta += dy),
     );
+  }
+
+  /**
+   * Drop the currently held pointer button until it's released. Call when
+   * the scene resumes: the click that pressed RESUME on the pause overlay
+   * is still down when the first tick samples, and would fire a shot.
+   */
+  suppressPointerUntilRelease(): void {
+    this.pointerSuppressed = true;
   }
 
   /** Re-read persisted keybinds (after the pause-menu panel changed them). */
@@ -53,7 +64,8 @@ export class InputSystem {
 
     const JustDown = Phaser.Input.Keyboard.JustDown;
     let buttons = 0;
-    if (pointer.isDown) buttons |= Buttons.Shoot;
+    if (this.pointerSuppressed && !pointer.isDown) this.pointerSuppressed = false;
+    if (pointer.isDown && !this.pointerSuppressed) buttons |= Buttons.Shoot;
     if (this.keys.walk.isDown) buttons |= Buttons.Walk;
     if (this.keys.use.isDown) buttons |= Buttons.Use; // held: plant/defuse
     if (JustDown(this.keys.reload)) buttons |= Buttons.Reload;

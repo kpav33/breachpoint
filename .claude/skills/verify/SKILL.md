@@ -56,6 +56,15 @@ Everything is canvas — no DOM selectors. Click/key by logical coordinates
 
 ## Gotchas
 
+- **The sim barely advances while you `waitForTimeout`.** Headless Chrome
+  renders on demand and software WebGL runs the game at ~4–6 fps, so idle
+  waits leave the match clock frozen (menu screens look fine — they're
+  static). Every `page.screenshot()` forces one frame, and each frame
+  advances the sim by up to the 250 ms frame-delta cap — so to pass game
+  time, pump frames: `for (…) await page.screenshot({ type: 'jpeg', quality: 10 })`
+  (~4 pumps ≈ 1 s of game time). Prefer `deviceScaleFactor: 1` for these
+  runs; use DPR 2 only for layout checks.
+
 - A single 404 in the browser console on load is pre-existing (favicon),
   not a regression.
 - Online mode needs `npm run server` (port 2567) — offline flows don't.
