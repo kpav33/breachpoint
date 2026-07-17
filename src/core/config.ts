@@ -111,6 +111,13 @@ export const SNAPSHOT_RATE = 15;
 export const DEFAULT_SERVER_PORT = 2567;
 /** Max buffered InputCommands per player; the oldest are dropped beyond this. */
 export const INPUT_QUEUE_MAX = 8;
+/**
+ * Input silence before the server stops repeating a client's last held
+ * command and idles the avatar, sec. Long enough to smooth packet jitter;
+ * short enough that a silent client (paused overlay, hidden tab, dead
+ * connection) doesn't keep running/firing on its last order.
+ */
+export const INPUT_HOLD_MAX_SEC = 0.3;
 /** Max players in an online room. */
 export const MAX_ONLINE_PLAYERS = 10;
 /** Remote players render this far in the past, lerped between snapshots, ms. */

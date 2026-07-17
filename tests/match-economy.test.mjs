@@ -154,5 +154,43 @@ const useCmd = { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.Use 
   check(match.lastRound?.reason === 'defusal', 'kit defuse completes in half the time');
 }
 
+// --- Bomb blast deaths reach the match layer -----------------------------------
+{
+  // Regression: blast deaths are emitted inside updateMatch, after the
+  // caller's tickEvents slice — explode() must process them itself or they
+  // never count (no death stat, no kill event, no weapon drop).
+  const { game, match } = setup();
+  advance(match, game, 26);
+  check(match.phase === 'live', 'live for blast-death test');
+  const site = map.bombsites[0];
+  const inSite = { x: site.x + site.width / 2, y: site.y + site.height / 2 };
+  match.bomb.plantedAt = { ...inSite };
+  match.bomb.timeLeft = 0.1;
+  game.players.c1.pos = { ...inSite }; // standing on the bomb
+  game.players.t1.pos = { x: 100, y: 100 }; // out of the blast
+
+  const deathsBefore = match.stats.c1.deaths;
+  const evStart = match.events.length;
+  advance(match, game, 0.3);
+  check(match.lastRound?.reason === 'detonation', 'round ended by detonation');
+  check(game.players.c1.hp === 0, 'CT on the bomb died in the blast');
+  check(match.stats.c1.deaths === deathsBefore + 1, 'blast death counted in stats');
+  const kills = match.events
+    .slice(evStart)
+    .filter((ev) => ev.type === 'kill' && ev.victimId === 'c1');
+  check(
+    kills.length === 1 && kills[0].killerId === 'bomb',
+    'exactly one kill event, credited to the bomb',
+  );
+  check(
+    match.droppedWeapons.length === 0 || match.droppedWeapons.every((d) => d.slot.weaponId !== 'knife'),
+    'no bogus drops from the blast',
+  );
+
+  // The stray events must not be re-processed on later ticks (double count).
+  advance(match, game, 0.5);
+  check(match.stats.c1.deaths === deathsBefore + 1, 'blast death not double-counted');
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

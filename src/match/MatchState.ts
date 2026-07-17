@@ -565,6 +565,11 @@ function updatePickup(match: MatchState, game: GameState): void {
 }
 
 function explode(match: MatchState, game: GameState, at: Vec2): void {
+  // Blast deaths are emitted mid-updateMatch — after the caller took its
+  // tickEvents slice — and next tick's slice starts past them, so they must
+  // be processed here or they never reach processDeaths (no death stat, no
+  // kill event, no weapon drop).
+  const evStart = game.events.length;
   for (const p of Object.values(game.players)) {
     if (p.hp <= 0) continue;
     const dist = Math.hypot(p.pos.x - at.x, p.pos.y - at.y);
@@ -572,6 +577,7 @@ function explode(match: MatchState, game: GameState, at: Vec2): void {
     const dmg = Math.round(BOMB_DAMAGE * (1 - dist / BOMB_RADIUS_PX));
     damagePlayer(game, p.id, dmg, 'bomb');
   }
+  processDeaths(match, game, game.events.slice(evStart));
   match.events.push({ type: 'exploded', pos: { x: at.x, y: at.y } });
   match.bomb.plantedAt = null;
   endRound(match, 'T', 'detonation');

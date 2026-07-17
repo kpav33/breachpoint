@@ -16,6 +16,7 @@ import {
   FLASH_BEHIND_MULT,
   FLASH_MAX_BLIND_SEC,
   FLASH_RANGE_PX,
+  INPUT_HOLD_MAX_SEC,
   INPUT_QUEUE_MAX,
   LAG_COMP_MAX_REWIND_SEC,
   PERF_WINDOW_SEC,
@@ -70,6 +71,8 @@ const MAX_TICK_DELTA_MS = 250;
 const DEFAULT_MAP = 'de_yard';
 /** Each team is kept at this size; bots fill whatever humans don't. */
 const TEAM_TARGET = TEAM_SIZE;
+/** Ticks of input silence before a repeated command decays to idle. */
+const INPUT_HOLD_MAX_TICKS = Math.round(TICK_RATE * INPUT_HOLD_MAX_SEC);
 
 const MAPS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public/assets/maps');
 
@@ -118,6 +121,8 @@ export class MatchRoom extends Room {
   private queues = new Map<string, InputMessage[]>();
   /** Last applied command per player — reused (minus one-shots) when the buffer runs dry. */
   private lastCmd = new Map<string, InputCommand>();
+  /** Consecutive ticks each player's command has been a repeat (no real input). */
+  private repeatTicks = new Map<string, number>();
   /** `cmd.tick` of the last real (non-repeated) input applied — the ack. */
   private lastInputTick = new Map<string, number>();
   /** Last viewTick each player reported (reused for repeated commands). */
@@ -287,6 +292,7 @@ export class MatchRoom extends Room {
     delete this.pings[id];
     this.queues.delete(id);
     this.lastCmd.delete(id);
+    this.repeatTicks.delete(id);
     this.lastInputTick.delete(id);
     this.lastViewTick.delete(id);
   }
@@ -551,6 +557,7 @@ export class MatchRoom extends Room {
         const queued = this.queues.get(id)?.shift();
         if (queued) {
           cmd = queued.cmd;
+          this.repeatTicks.set(id, 0);
           this.lastInputTick.set(id, queued.cmd.tick);
           this.lastViewTick.set(id, queued.viewTick);
         } else {
@@ -671,10 +678,20 @@ export class MatchRoom extends Room {
     }
   }
 
-  /** Reuse the previous command (aim/movement hold), minus one-shot buttons. */
+  /**
+   * Reuse the previous command (aim/movement hold), minus one-shot buttons.
+   * Only briefly: past INPUT_HOLD_MAX_TICKS of silence the avatar idles —
+   * a paused overlay, hidden tab or dead connection must not leave it
+   * running/firing on its last order indefinitely.
+   */
   private repeatCommand(id: string): InputCommand {
     const last = this.lastCmd.get(id);
     if (!last) return idleCommand();
+    const held = (this.repeatTicks.get(id) ?? 0) + 1;
+    this.repeatTicks.set(id, held);
+    if (held > INPUT_HOLD_MAX_TICKS) {
+      return { ...idleCommand(), aimAngle: last.aimAngle };
+    }
     return { ...last, buttons: last.buttons & ~ONE_SHOT_BUTTONS };
   }
 
