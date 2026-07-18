@@ -8,21 +8,30 @@ import { OnlineGameScene } from './scenes/OnlineGameScene';
 import { UIScene } from './scenes/UIScene';
 import { PauseScene } from './scenes/PauseScene';
 import { WORLD } from './game/theme';
-import { GAME_WIDTH, GAME_HEIGHT, DPR } from './game/display';
+import { renderScale, installScaleHandler } from './game/display';
 
-new Phaser.Game({
+const rs = renderScale();
+
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
-  // Backing store is oversampled by DPR; scenes stay in logical 1280×720
+  // Backing store matches the canvas's on-screen device-pixel size exactly
+  // (no CSS resampling → crisp text); scenes stay in logical 1280×720
   // coordinates via applyHiDPI() camera zoom (see game/display.ts).
-  width: GAME_WIDTH * DPR,
-  height: GAME_HEIGHT * DPR,
+  width: rs.backingW,
+  height: rs.backingH,
   backgroundColor: WORLD.void,
   // Flat geometric/vector art style — keep antialiasing on, no pixelArt.
   antialias: true,
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // Scale.NONE: display.ts owns fitting/centering. The CSS zoom shrinks
+    // the device-pixel backing store to its CSS size (and keeps Phaser's
+    // pointer mapping correct).
+    mode: Phaser.Scale.NONE,
+    zoom: rs.cssW / rs.backingW,
+    autoCenter: Phaser.Scale.NO_CENTER,
   },
   scene: [BootScene, MenuScene, LobbyScene, GameScene, PracticeScene, OnlineGameScene, UIScene, PauseScene],
 });
+
+installScaleHandler(game);

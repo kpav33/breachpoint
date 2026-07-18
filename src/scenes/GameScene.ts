@@ -51,7 +51,7 @@ import { PlayerView } from '../game/entities/PlayerView';
 import { BotController } from '../ai/BotController';
 import { assignBotObjectives, buildBotWorld } from '../ai/objectives';
 import { DebugOverlay } from '../game/debug/DebugOverlay';
-import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI, screenX, screenY } from '../game/display';
+import { GAME_WIDTH, GAME_HEIGHT, applyHiDPI, onRenderScale, screenX, screenY } from '../game/display';
 import { loadMap, MAP_KEY } from '../game/map/MapLoader';
 import { loadSettings } from '../game/settings';
 import type { GameConfig } from './MenuScene';
@@ -224,15 +224,16 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.bombGfx = this.add.graphics().setDepth(4);
     // Smoke clouds cover players (5) but sit under the fog layer (50).
     this.smokeGfx = this.add.graphics().setDepth(40);
-    this.damageIndicatorGfx = this.add
-      .graphics({ x: screenX(0), y: screenY(0) })
-      .setScrollFactor(0)
-      .setDepth(600);
+    this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
     this.flashRect = this.add
-      .rectangle(screenX(GAME_WIDTH / 2), screenY(GAME_HEIGHT / 2), GAME_WIDTH, GAME_HEIGHT, 0xffffff)
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0xffffff)
       .setScrollFactor(0)
       .setDepth(650)
       .setAlpha(0);
+    onRenderScale(this, () => {
+      this.damageIndicatorGfx.setPosition(screenX(0), screenY(0));
+      this.flashRect.setPosition(screenX(GAME_WIDTH / 2), screenY(GAME_HEIGHT / 2));
+    });
     this.blindLeft = 0;
 
     this.cameras.main.setBounds(0, 0, grid.width * grid.tileSize, grid.height * grid.tileSize);

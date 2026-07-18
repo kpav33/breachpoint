@@ -4,7 +4,7 @@ import { AWARENESS_RADIUS, FULL_CIRCLE_VISION } from '../../core/config';
 import { smokeSegments, visibilityPolygon } from '../../core/vision';
 import type { VisionResult } from '../../core/vision';
 import { WORLD } from '../theme';
-import { GAME_WIDTH, GAME_HEIGHT, screenX, screenY } from '../display';
+import { GAME_WIDTH, GAME_HEIGHT, onRenderScale, screenX, screenY } from '../display';
 
 /** How dark the unseen world is (0..1). Render-side constant. */
 const DARKNESS_ALPHA = 0.86;
@@ -38,10 +38,11 @@ export class VisionSystem {
     private readonly segments: Segment[],
   ) {
     this.rt = scene.add
-      .renderTexture(screenX(0), screenY(0), GAME_WIDTH, GAME_HEIGHT)
+      .renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT)
       .setOrigin(0)
       .setScrollFactor(0)
       .setDepth(50);
+    onRenderScale(scene, () => this.rt.setPosition(screenX(0), screenY(0)));
     this.stamp = scene.make.graphics(undefined, false);
   }
 

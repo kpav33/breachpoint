@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { MapGrid, Vec2 } from '../../core/types';
 import { isWall } from '../../core/collision';
 import { WALL_EXTRUDE, WORLD } from '../theme';
-import { GAME_WIDTH, GAME_HEIGHT, screenX, screenY } from '../display';
+import { GAME_WIDTH, GAME_HEIGHT, onRenderScale, screenX, screenY } from '../display';
 
 /** Above players (5) and tracers (10), below smoke (40) and fog (50). */
 const WALL_DEPTH = 20;
@@ -55,11 +55,12 @@ export class ElevationSystem {
   ) {
     this.gfx = scene.add.graphics().setDepth(WALL_DEPTH);
     this.ghostRT = scene.add
-      .renderTexture(screenX(0), screenY(0), GAME_WIDTH, GAME_HEIGHT)
+      .renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT)
       .setOrigin(0)
       .setScrollFactor(0)
       .setDepth(GHOST_DEPTH)
       .setAlpha(GHOST_ALPHA);
+    onRenderScale(scene, () => this.ghostRT.setPosition(screenX(0), screenY(0)));
     this.ghostStamp = scene.make.graphics(undefined, false);
     this.rects = meshWallRects(grid);
     this.flatWalls = flatWalls;

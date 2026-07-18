@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, screenX, screenY } from '../display';
+import { GAME_WIDTH, onRenderScale, screenX, screenY } from '../display';
 
 /**
  * Debug overlay scaffold, toggled with backtick (`).
@@ -21,7 +21,7 @@ export class DebugOverlay {
     // Top-right, right-aligned: the top-left corner belongs to the minimap
     // (and, online, the room-code label), and the buy panel opens below it.
     this.text = scene.add
-      .text(screenX(GAME_WIDTH - 8), screenY(8), '', {
+      .text(0, 0, '', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#00ff88',
@@ -33,6 +33,7 @@ export class DebugOverlay {
       .setScrollFactor(0)
       .setDepth(1000)
       .setVisible(false);
+    onRenderScale(scene, () => this.text.setPosition(screenX(GAME_WIDTH - 8), screenY(8)));
 
     this.gfx = scene.add.graphics().setDepth(999).setVisible(false);
 
