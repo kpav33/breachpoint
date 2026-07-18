@@ -125,13 +125,23 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ESC', () => this.settingsPanel.handleEscape());
 
     this.add
-      .text(w / 2, h - 24, controlsHint(), {
+      .text(w / 2, h - 34, controlsHint(), {
         fontFamily: FONT_DATA,
         fontSize: '11px',
         fontStyle: '500',
         color: TEXT_3,
       })
       .setOrigin(0.5);
+
+    this.add
+      .text(w / 2, h - 10, 'inspired by cr4zi3st · made by ragnarok', {
+        fontFamily: FONT_DATA,
+        fontSize: '10px',
+        fontStyle: '500',
+        color: TEXT_3,
+      })
+      .setOrigin(0.5, 1)
+      .setAlpha(0.7);
   }
 
   private cycleMap(dir: number): void {
