@@ -37,6 +37,13 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
+    # Healthcheck endpoint (Coolify / docker HEALTHCHECK).
+    location = /health {
+        access_log off;
+        default_type text/plain;
+        return 200 "OK";
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -44,3 +51,8 @@ server {
 EOF
 
 EXPOSE 80
+
+# nginx:alpine ships busybox wget, so Coolify's HTTP healthcheck (host
+# localhost, port 80, path /health) also works if configured in the UI.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/health || exit 1

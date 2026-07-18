@@ -20,4 +20,10 @@ COPY public/assets/maps ./public/assets/maps
 ENV PORT=2567
 EXPOSE 2567
 
+# node:22-slim has no curl/wget, so probe GET /health (server/index.ts) with
+# node itself. Coolify reads this container health state; its UI-configured
+# HTTP healthcheck would need curl in the image — leave that toggle off.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||2567)+'/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
 CMD ["node", "--experimental-strip-types", "server/index.ts"]

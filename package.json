@@ -13,6 +13,7 @@
     "test": "node --experimental-strip-types --test 'tests/*.test.mjs'"
   },
   "dependencies": {
+    "@colyseus/ws-transport": "^0.16.5",
     "colyseus": "^0.16.5",
     "colyseus.js": "^0.16.22",
     "phaser": "^3.90.0"

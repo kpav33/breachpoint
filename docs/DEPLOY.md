@@ -8,6 +8,21 @@ Two separate deploys, one repo:
   Node 22.11 is below the >=22.12 that Vite 8's rolldown binding requires.
 - **Server** — the Colyseus game server (`server/`), a long-lived Node process.
 
+## Healthchecks
+
+Both deploys expose `GET /health` → `200 OK`:
+
+- **Server** — served by the plain-HTTP side of the Colyseus listener
+  (`server/index.ts`); all other paths 404, game traffic is WebSocket-only.
+  The `Dockerfile` declares a Docker `HEALTHCHECK` that probes it with
+  `node` (the `node:22-slim` base has no curl/wget), so Docker hosts like
+  Coolify report container health automatically — leave Coolify's own
+  "Enable Healthcheck" toggle **off** for the server, since its UI check
+  shells out to curl, which isn't in the image.
+- **Client** — an nginx `location = /health` in `Dockerfile.client`, plus a
+  Docker `HEALTHCHECK` via busybox wget. Coolify's UI healthcheck also works
+  here (scheme http, host localhost, port 80, path `/health`).
+
 The server is **stateful**: rooms and the authoritative simulation live in the
 Node process's memory. That rules out serverless/edge functions — it needs a
 host that runs a persistent process. Run **exactly one** instance (no
