@@ -3,6 +3,9 @@
 Two separate deploys, one repo:
 
 - **Client** — the Vite build (`npm run build` → `dist/`), static files on any CDN.
+  For Docker hosts (e.g. Coolify) use `Dockerfile.client` (nginx image; set
+  `VITE_SERVER_URL` as a *build-time* variable) — don't use Nixpacks, its pinned
+  Node 22.11 is below the >=22.12 that Vite 8's rolldown binding requires.
 - **Server** — the Colyseus game server (`server/`), a long-lived Node process.
 
 The server is **stateful**: rooms and the authoritative simulation live in the
