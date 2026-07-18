@@ -4,6 +4,8 @@ Top-down 2D Counter-Strike-like: round-based bomb defuse vs bots first, online m
 
 **Stack:** Phaser 3 · TypeScript · Vite · Tiled maps · Colyseus + Node (later phases only)
 
+New to the project? Read `docs/INTRO.md` first — a quick orientation on what the game is, the stack, and the architecture.
+
 ## Implementation plan
 
 The full phased plan lives in `docs/PLAN.md`. Before starting any work, read the current phase (and its "Gotchas") there. Work on ONE phase at a time — never implement ahead of the phase the user asked for. The "Locked-in design decisions" section at the top of the plan is final; do not revisit those choices.
