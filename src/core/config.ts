@@ -84,6 +84,16 @@ export const GRENADE_THROW_SPEED = 420;
 export const GRENADE_FRICTION = 1.6;
 /** Grenade body radius for wall bounces, px. */
 export const GRENADE_RADIUS_PX = 5;
+/**
+ * Fake vertical axis (over-wall throws). Every throw launches upward at
+ * GRENADE_LAUNCH_VZ and falls under GRENADE_GRAVITY; walls only block the
+ * grenade while it flies at or below WALL_HEIGHT_PX. Keep the total airtime
+ * (2 * GRENADE_LAUNCH_VZ / GRENADE_GRAVITY ≈ 0.89 s) below the shortest
+ * fuse, or that grenade type detonates mid-air.
+ */
+export const GRENADE_LAUNCH_VZ = 400;
+export const GRENADE_GRAVITY = 900;
+export const WALL_HEIGHT_PX = 40;
 /** Seconds a throw locks the trigger (no same-instant shooting). */
 export const GRENADE_THROW_LOCKOUT_SEC = 0.5;
 export const HE_DAMAGE = 90;

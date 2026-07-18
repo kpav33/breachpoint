@@ -9,6 +9,7 @@ import {
   TICK_RATE,
   WEAPONS,
 } from "../core/config";
+import { Buttons } from "../core/types";
 import type { GrenadeType, Vec2 } from "../core/types";
 import {
   applyInput,
@@ -35,6 +36,7 @@ interface RecordedThrow {
   pos: Vec2;
   angle: number;
   type: GrenadeType;
+  flat: boolean;
 }
 
 /**
@@ -52,6 +54,8 @@ export class PracticeScene extends GameScene {
   private buyOpen = false;
   private lastThrow: RecordedThrow | null = null;
   private rethrowQueued = false;
+  /** Walk held on the latest sampled input — previews the flat roll. */
+  private walkHeld = false;
   /** Actual flight paths, live (keyed by projectile id) and fading out. */
   private liveTrails = new Map<number, { type: GrenadeType; points: Vec2[] }>();
   private fadingTrails: {
@@ -93,7 +97,8 @@ export class PracticeScene extends GameScene {
         eyebrow: "PRACTICE",
         headline: "UTILITY SANDBOX",
         sub:
-          `${k("he")}/${k("flash")}/${k("smoke")} throw · N preview on/off · ` +
+          `${k("he")}/${k("flash")}/${k("smoke")} throw (arcs over walls) · ` +
+          `${k("walk")}+throw flat roll · N preview on/off · ` +
           "M preview type · T rethrow last · B buy",
       },
       9000,
@@ -141,15 +146,18 @@ export class PracticeScene extends GameScene {
 
       const before = this.state.nextProjectileId;
       const cmd = this.inputSystem.sample(this.state.tick, player.pos);
+      this.walkHeld = (cmd.buttons & Buttons.Walk) !== 0;
       applyInput(this.state, this.humanId, cmd, this.map, FIXED_DT);
       // A new projectile inside applyInput = the player threw: record it
-      // (post-move pos/angle are exactly what tryThrow launched from).
+      // (post-move pos/angle are exactly what tryThrow launched from; a
+      // freshly spawned flat roll is recognizable by its zero launch vz).
       if (this.state.nextProjectileId > before) {
         const g = this.state.projectiles[this.state.projectiles.length - 1];
         this.lastThrow = {
           pos: { ...player.pos },
           angle: player.angle,
           type: g.type,
+          flat: g.vz === 0,
         };
         this.previewType = g.type; // preview follows what you practice
       }
@@ -163,6 +171,7 @@ export class PracticeScene extends GameScene {
             this.lastThrow.pos,
             this.lastThrow.angle,
             this.lastThrow.type,
+            this.lastThrow.flat,
           );
         }
       }
@@ -270,6 +279,7 @@ export class PracticeScene extends GameScene {
         this.previewType,
         this.map,
         FIXED_DT,
+        this.walkHeld,
       );
       this.drawPath(g, path, TRACER, 0.55, true);
       const end = path[path.length - 1];

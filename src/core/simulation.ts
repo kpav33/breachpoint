@@ -15,6 +15,8 @@ import {
   FRIENDLY_FIRE,
   GRENADES,
   GRENADE_FRICTION,
+  GRENADE_GRAVITY,
+  GRENADE_LAUNCH_VZ,
   GRENADE_RADIUS_PX,
   GRENADE_THROW_LOCKOUT_SEC,
   GRENADE_THROW_SPEED,
@@ -25,6 +27,7 @@ import {
   PLAYER_RADIUS,
   SMOKE_DURATION_SEC,
   WALK_SPEED,
+  WALL_HEIGHT_PX,
   WEAPONS,
   WEAPON_SWITCH_TIME,
 } from './config.ts';
@@ -139,18 +142,21 @@ export function applyInput(
   move(p, cmd, map, dt);
   p.angle = cmd.aimAngle;
   if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
-  if (cmd.buttons & Buttons.ThrowHE) tryThrow(state, p, 'he');
-  if (cmd.buttons & Buttons.ThrowFlash) tryThrow(state, p, 'flash');
-  if (cmd.buttons & Buttons.ThrowSmoke) tryThrow(state, p, 'smoke');
+  // Walk held = underhand flat roll (stays low, bounces off walls);
+  // otherwise the throw is an overhand arc that clears walls.
+  const flat = (cmd.buttons & Buttons.Walk) !== 0;
+  if (cmd.buttons & Buttons.ThrowHE) tryThrow(state, p, 'he', flat);
+  if (cmd.buttons & Buttons.ThrowFlash) tryThrow(state, p, 'flash', flat);
+  if (cmd.buttons & Buttons.ThrowSmoke) tryThrow(state, p, 'smoke', flat);
   if (cmd.buttons & Buttons.Shoot) tryFire(state, p, map);
 }
 
-function tryThrow(state: GameState, p: PlayerState, type: GrenadeType): void {
+function tryThrow(state: GameState, p: PlayerState, type: GrenadeType, flat: boolean): void {
   if (p.fireCooldown > 0) return;
   const idx = p.grenades.indexOf(type);
   if (idx < 0) return;
   p.grenades.splice(idx, 1);
-  spawnGrenade(state, p.id, p.pos, p.angle, type);
+  spawnGrenade(state, p.id, p.pos, p.angle, type, flat);
   p.fireCooldown = Math.max(p.fireCooldown, GRENADE_THROW_LOCKOUT_SEC);
 }
 
@@ -159,11 +165,15 @@ function grenadeLaunch(
   from: Vec2,
   angle: number,
   type: GrenadeType,
-): { pos: Vec2; vel: Vec2; fuse: number } {
+  flat: boolean,
+): { pos: Vec2; vel: Vec2; z: number; vz: number; overWall: boolean; fuse: number } {
   const dir = { x: Math.cos(angle), y: Math.sin(angle) };
   return {
     pos: { x: from.x + dir.x * (PLAYER_RADIUS + 4), y: from.y + dir.y * (PLAYER_RADIUS + 4) },
     vel: { x: dir.x * GRENADE_THROW_SPEED, y: dir.y * GRENADE_THROW_SPEED },
+    z: 0,
+    vz: flat ? 0 : GRENADE_LAUNCH_VZ,
+    overWall: false,
     fuse: GRENADES[type].fuseSec,
   };
 }
@@ -179,14 +189,18 @@ export function spawnGrenade(
   from: Vec2,
   angle: number,
   type: GrenadeType,
+  flat = false,
 ): void {
-  const l = grenadeLaunch(from, angle, type);
+  const l = grenadeLaunch(from, angle, type, flat);
   state.projectiles.push({
     id: state.nextProjectileId++,
     type,
     ownerId,
     pos: l.pos,
     vel: l.vel,
+    z: l.z,
+    vz: l.vz,
+    overWall: l.overWall,
     fuse: l.fuse,
   });
   state.events.push({ type: 'grenade_throw', playerId: ownerId, gtype: type, from: { ...from } });
@@ -217,21 +231,39 @@ export function stepWorld(state: GameState, map: SimMap, dt: number): void {
 }
 
 /**
- * Integrate one grenade for one tick: axis-separated move with damped wall
- * bounces, friction, fuse. Shared verbatim by the live world step and the
+ * Integrate one grenade for one tick: gravity arc on the fake z axis, then
+ * axis-separated move with damped wall bounces (skipped while flying above
+ * WALL_HEIGHT_PX — over-wall throws), friction, fuse. Shared verbatim by the
+ * live world step and the
  * trajectory preview so the predicted arc can never drift from reality.
  */
 export function stepGrenade(
-  g: { pos: Vec2; vel: Vec2; fuse: number },
+  g: { pos: Vec2; vel: Vec2; z: number; vz: number; overWall: boolean; fuse: number },
   map: SimMap,
   dt: number,
 ): void {
-  const friction = Math.exp(-GRENADE_FRICTION * dt);
+  g.vz -= GRENADE_GRAVITY * dt;
+  g.z += g.vz * dt;
+  if (g.z <= 0) {
+    g.z = 0;
+    g.vz = 0;
+  }
+  // Walls only exist for the grenade while it flies at or below wall height.
+  // overWall marks a footprint it drifted above while flying higher than the
+  // wall: it slides across the top, friction-free so it can't strand
+  // mid-wall, until it drops off an edge. A throw that starts overlapping a
+  // wall at ground level (point-blank, flat rolls) never earns the flag, so
+  // it bounces off the face as before.
+  const low = g.z <= WALL_HEIGHT_PX;
+  const inside = grenadeHitsWall(map, g.pos.x, g.pos.y);
+  g.overWall = inside && (g.overWall || !low);
+  const solid = low && !g.overWall;
+  const friction = low && g.overWall ? 1 : Math.exp(-GRENADE_FRICTION * dt);
   const nx = g.pos.x + g.vel.x * dt;
-  if (grenadeHitsWall(map, nx, g.pos.y)) g.vel.x = -g.vel.x * 0.55;
+  if (solid && grenadeHitsWall(map, nx, g.pos.y)) g.vel.x = -g.vel.x * 0.55;
   else g.pos.x = nx;
   const ny = g.pos.y + g.vel.y * dt;
-  if (grenadeHitsWall(map, g.pos.x, ny)) g.vel.y = -g.vel.y * 0.55;
+  if (solid && grenadeHitsWall(map, g.pos.x, ny)) g.vel.y = -g.vel.y * 0.55;
   else g.pos.y = ny;
   g.vel.x *= friction;
   g.vel.y *= friction;
@@ -249,8 +281,9 @@ export function predictGrenadePath(
   type: GrenadeType,
   map: SimMap,
   dt: number,
+  flat = false,
 ): Vec2[] {
-  const g = grenadeLaunch(from, angle, type);
+  const g = grenadeLaunch(from, angle, type, flat);
   const points: Vec2[] = [{ x: g.pos.x, y: g.pos.y }];
   // Fuses are ~1–2s; the guard only exists to survive a bad dt.
   let guard = 1000;

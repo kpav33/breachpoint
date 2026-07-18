@@ -78,6 +78,7 @@ import {
   LINE,
   ME_RING,
   SMOKE_CLOUD,
+  WORLD,
 } from '../game/theme';
 
 const BUY_ITEMS: { item: BuyItem; label: string }[] = [
@@ -132,6 +133,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   protected debug!: DebugOverlay;
   protected ui!: UIScene;
   private bombGfx!: Phaser.GameObjects.Graphics;
+  private nadeAirGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
   private damageIndicators: { angle: number; age: number }[] = [];
   private banner: (Banner & { ttl: number }) | null = null;
@@ -222,6 +224,9 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.vision = new VisionSystem(this, this.map.segments);
     this.audio = new AudioSystem(this);
     this.bombGfx = this.add.graphics().setDepth(4);
+    // Airborne grenades pass over the extruded walls (20) but stay under the
+    // fog (50) — an over-wall throw disappears where you can't see.
+    this.nadeAirGfx = this.add.graphics().setDepth(45);
     // Smoke clouds cover players (5) but sit under the fog layer (50).
     this.smokeGfx = this.add.graphics().setDepth(40);
     this.damageIndicatorGfx = this.add.graphics().setScrollFactor(0).setDepth(600);
@@ -638,15 +643,23 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.flashRect.setAlpha(Math.min(1, this.blindLeft / 0.9));
   }
 
-  /** Grenades in flight (bombGfx layer) + smoke clouds (above players). */
+  /** Grenades in flight (ground on bombGfx, airborne above the walls) + smoke clouds. */
   private drawGrenades(): void {
-    const g = this.bombGfx;
+    this.nadeAirGfx.clear();
     for (const p of this.state.projectiles) {
       const band = p.type === 'he' ? HIT : p.type === 'flash' ? ME_RING : LINE;
+      // Height reads as up-screen lift + growth, with the shadow left on the floor.
+      const g = p.z > 0 ? this.nadeAirGfx : this.bombGfx;
+      const y = p.pos.y - p.z * 0.5;
+      const r = 4 * (1 + p.z / 150);
+      if (p.z > 0) {
+        this.bombGfx.fillStyle(WORLD.void2, 0.4);
+        this.bombGfx.fillEllipse(p.pos.x + 3, p.pos.y + 4, r * 2, r * 1.4);
+      }
       g.fillStyle(SMOKE_CLOUD, 1);
-      g.fillCircle(p.pos.x, p.pos.y, 4);
+      g.fillCircle(p.pos.x, y, r);
       g.lineStyle(2, band, 1);
-      g.strokeCircle(p.pos.x, p.pos.y, 4);
+      g.strokeCircle(p.pos.x, y, r);
     }
 
     const s = this.smokeGfx;

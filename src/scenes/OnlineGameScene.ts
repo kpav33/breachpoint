@@ -102,7 +102,7 @@ interface BufferEntry {
   atMs: number;
   tick: number;
   players: Record<string, { x: number; y: number; angle: number; hp: number }>;
-  projectiles: Record<number, { x: number; y: number }>;
+  projectiles: Record<number, { x: number; y: number; z: number }>;
 }
 
 function lerpAngle(a: number, b: number, t: number): number {
@@ -444,7 +444,7 @@ export class OnlineGameScene extends GameScene {
         entry.players[p.id] = { x: p.pos.x, y: p.pos.y, angle: p.angle, hp: p.hp };
       }
       for (const g of snap.game.projectiles) {
-        entry.projectiles[g.id] = { x: g.pos.x, y: g.pos.y };
+        entry.projectiles[g.id] = { x: g.pos.x, y: g.pos.y, z: g.z };
       }
       this.snapBuffer.push(entry);
     }
@@ -580,6 +580,7 @@ export class OnlineGameScene extends GameScene {
       if (!a || !b) continue;
       g.pos.x = a.x + (b.x - a.x) * t;
       g.pos.y = a.y + (b.y - a.y) * t;
+      g.z = a.z + (b.z - a.z) * t;
     }
   }
 

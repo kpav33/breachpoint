@@ -117,6 +117,12 @@ export interface ProjectileState {
   ownerId: string;
   pos: Vec2;
   vel: Vec2;
+  /** Height above the floor on the fake vertical axis, px (0 = on the ground). */
+  z: number;
+  /** Vertical speed on the fake axis, px/s (positive = rising). */
+  vz: number;
+  /** Inside a wall footprint it entered from above (sliding across the top). */
+  overWall: boolean;
   /** Seconds until detonation/activation. */
   fuse: number;
 }
