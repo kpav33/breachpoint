@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   FLASH_RANGE_PX,
+  GRENADE_THROW_SPEED,
   HE_RADIUS_PX,
   MONEY_CAP,
   PLAYER_MAX_HP,
@@ -14,6 +15,7 @@ import type { GrenadeType, Vec2 } from "../core/types";
 import {
   applyInput,
   createPlayer,
+  grenadeChargeSpeed,
   predictGrenadePath,
   spawnGrenade,
   stepWorld,
@@ -37,6 +39,8 @@ interface RecordedThrow {
   angle: number;
   type: GrenadeType;
   flat: boolean;
+  /** Launch speed at throw time — replays the exact charged distance. */
+  speed: number;
 }
 
 /**
@@ -97,7 +101,7 @@ export class PracticeScene extends GameScene {
         eyebrow: "PRACTICE",
         headline: "UTILITY SANDBOX",
         sub:
-          `${k("he")}/${k("flash")}/${k("smoke")} throw (arcs over walls) · ` +
+          `${k("he")}/${k("flash")}/${k("smoke")} throw (tap = full, hold = shorter) · ` +
           `${k("walk")}+throw flat roll · N preview on/off · ` +
           "M preview type · T rethrow last · B buy",
       },
@@ -158,6 +162,7 @@ export class PracticeScene extends GameScene {
           angle: player.angle,
           type: g.type,
           flat: g.vz === 0,
+          speed: Math.hypot(g.vel.x, g.vel.y),
         };
         this.previewType = g.type; // preview follows what you practice
       }
@@ -172,6 +177,7 @@ export class PracticeScene extends GameScene {
             this.lastThrow.angle,
             this.lastThrow.type,
             this.lastThrow.flat,
+            this.lastThrow.speed,
           );
         }
       }
@@ -273,6 +279,12 @@ export class PracticeScene extends GameScene {
 
     if (this.previewOn) {
       const me = this.state.players[this.humanId];
+      // While a throw key is held, the preview shrinks live with the charge
+      // (tap = full range); otherwise it shows a full-strength throw.
+      const speed =
+        me.chargingGrenade !== null
+          ? grenadeChargeSpeed(me.chargeTicks, FIXED_DT)
+          : GRENADE_THROW_SPEED;
       const path = predictGrenadePath(
         me.pos,
         me.angle,
@@ -280,6 +292,7 @@ export class PracticeScene extends GameScene {
         this.map,
         FIXED_DT,
         this.walkHeld,
+        speed,
       );
       this.drawPath(g, path, TRACER, 0.55, true);
       const end = path[path.length - 1];

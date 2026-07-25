@@ -79,7 +79,18 @@ export const GRENADES: Record<GrenadeType, GrenadeDef> = {
   flash: { price: 200, fuseSec: 1.2 },
   smoke: { price: 300, fuseSec: 1.0 },
 };
+/** Full-strength (tapped) throw speed, px/s. */
 export const GRENADE_THROW_SPEED = 420;
+/**
+ * Variable throw strength (hold-to-charge). A tap throws at full
+ * GRENADE_THROW_SPEED; holding the throw key ramps the launch speed DOWN
+ * toward GRENADE_THROW_SPEED_MIN for short lobs. GRENADE_CHARGE_GRACE_SEC of
+ * hold still counts as a full-power tap (so quick presses stay snappy), after
+ * which strength falls to the minimum over GRENADE_CHARGE_TIME_SEC.
+ */
+export const GRENADE_THROW_SPEED_MIN = 150;
+export const GRENADE_CHARGE_GRACE_SEC = 0.1;
+export const GRENADE_CHARGE_TIME_SEC = 0.7;
 /** Exponential velocity decay coefficient, per second. */
 export const GRENADE_FRICTION = 1.6;
 /** Grenade body radius for wall bounces, px. */

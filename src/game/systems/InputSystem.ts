@@ -70,9 +70,11 @@ export class InputSystem {
     if (this.keys.use.isDown) buttons |= Buttons.Use; // held: plant/defuse
     if (JustDown(this.keys.reload)) buttons |= Buttons.Reload;
     if (JustDown(this.keys.drop)) buttons |= Buttons.Drop;
-    if (JustDown(this.keys.he)) buttons |= Buttons.ThrowHE;
-    if (JustDown(this.keys.flash)) buttons |= Buttons.ThrowFlash;
-    if (JustDown(this.keys.smoke)) buttons |= Buttons.ThrowSmoke;
+    // Throws are held, not one-shot: the key is charged while down and the
+    // grenade launches on release (tap = full strength, hold = shorter).
+    if (this.keys.he.isDown) buttons |= Buttons.ThrowHE;
+    if (this.keys.flash.isDown) buttons |= Buttons.ThrowFlash;
+    if (this.keys.smoke.isDown) buttons |= Buttons.ThrowSmoke;
     if (JustDown(this.keys.slotPrimary)) buttons |= Buttons.SelectPrimary;
     if (JustDown(this.keys.slotSecondary)) buttons |= Buttons.SelectSecondary;
     if (JustDown(this.keys.slotMelee)) buttons |= Buttons.SelectMelee;

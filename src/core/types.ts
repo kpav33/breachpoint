@@ -106,6 +106,14 @@ export interface PlayerState {
   bloomDeg: number;
   /** Grenade inventory — at most one of each type. */
   grenades: GrenadeType[];
+  /**
+   * Hold-to-charge throw: the grenade whose throw key is currently held
+   * (null = not charging), and how many ticks it's been held. On release the
+   * simulation converts the held ticks into a launch speed (tap = full,
+   * longer hold = shorter throw) and spawns the grenade.
+   */
+  chargingGrenade: GrenadeType | null;
+  chargeTicks: number;
 }
 
 export type GrenadeType = 'he' | 'flash' | 'smoke';

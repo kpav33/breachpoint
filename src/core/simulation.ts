@@ -14,12 +14,15 @@ import {
   ARMOR_ABSORPTION,
   FRIENDLY_FIRE,
   GRENADES,
+  GRENADE_CHARGE_GRACE_SEC,
+  GRENADE_CHARGE_TIME_SEC,
   GRENADE_FRICTION,
   GRENADE_GRAVITY,
   GRENADE_LAUNCH_VZ,
   GRENADE_RADIUS_PX,
   GRENADE_THROW_LOCKOUT_SEC,
   GRENADE_THROW_SPEED,
+  GRENADE_THROW_SPEED_MIN,
   HE_DAMAGE,
   HE_RADIUS_PX,
   MOVE_SPEED,
@@ -69,6 +72,8 @@ export function createPlayer(
     fireCooldown: 0,
     reloadRemaining: 0,
     bloomDeg: 0,
+    chargingGrenade: null,
+    chargeTicks: 0,
   };
 }
 
@@ -87,6 +92,8 @@ export function respawnPlayer(state: GameState, playerId: string, pos: Vec2): vo
   p.fireCooldown = 0;
   p.reloadRemaining = 0;
   p.bloomDeg = 0;
+  p.chargingGrenade = null;
+  p.chargeTicks = 0;
 }
 
 /**
@@ -142,21 +149,78 @@ export function applyInput(
   move(p, cmd, map, dt);
   p.angle = cmd.aimAngle;
   if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
-  // Walk held = underhand flat roll (stays low, bounces off walls);
-  // otherwise the throw is an overhand arc that clears walls.
-  const flat = (cmd.buttons & Buttons.Walk) !== 0;
-  if (cmd.buttons & Buttons.ThrowHE) tryThrow(state, p, 'he', flat);
-  if (cmd.buttons & Buttons.ThrowFlash) tryThrow(state, p, 'flash', flat);
-  if (cmd.buttons & Buttons.ThrowSmoke) tryThrow(state, p, 'smoke', flat);
-  if (cmd.buttons & Buttons.Shoot) tryFire(state, p, map);
+  handleGrenadeCharge(state, p, cmd, dt);
+  // Can't shoot while a grenade is charged and ready to throw.
+  if (cmd.buttons & Buttons.Shoot && p.chargingGrenade === null) tryFire(state, p, map);
 }
 
-function tryThrow(state: GameState, p: PlayerState, type: GrenadeType, flat: boolean): void {
+/** Which grenade a throw button asks for this tick (HE > flash > smoke), or null. */
+function heldGrenade(buttons: number): GrenadeType | null {
+  if (buttons & Buttons.ThrowHE) return 'he';
+  if (buttons & Buttons.ThrowFlash) return 'flash';
+  if (buttons & Buttons.ThrowSmoke) return 'smoke';
+  return null;
+}
+
+/**
+ * Map held charge ticks to a launch speed. Up to GRENADE_CHARGE_GRACE_SEC of
+ * hold is a full-power tap; past that, the speed ramps linearly down to
+ * GRENADE_THROW_SPEED_MIN over GRENADE_CHARGE_TIME_SEC. Shared by the sim and
+ * the client's charge readout so they never disagree.
+ */
+export function grenadeChargeSpeed(chargeTicks: number, dt: number): number {
+  const held = chargeTicks * dt;
+  const frac = clamp01((held - GRENADE_CHARGE_GRACE_SEC) / GRENADE_CHARGE_TIME_SEC);
+  return GRENADE_THROW_SPEED + (GRENADE_THROW_SPEED_MIN - GRENADE_THROW_SPEED) * frac;
+}
+
+function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+/**
+ * Hold-to-charge throw. While a throw key is held the player accumulates
+ * charge ticks; releasing it (or letting go to switch to another throw) spawns
+ * the grenade at a speed derived from how long it was held. A quick tap
+ * therefore throws at full strength; holding shortens the throw.
+ */
+function handleGrenadeCharge(
+  state: GameState,
+  p: PlayerState,
+  cmd: InputCommand,
+  dt: number,
+): void {
+  const held = heldGrenade(cmd.buttons);
+  if (p.chargingGrenade !== null) {
+    if (held === p.chargingGrenade) {
+      // Cap so ticks can't grow unbounded; the extra +1 leaves room past the
+      // point strength bottoms out without changing the launch speed.
+      const maxTicks = Math.ceil((GRENADE_CHARGE_GRACE_SEC + GRENADE_CHARGE_TIME_SEC) / dt) + 1;
+      p.chargeTicks = Math.min(p.chargeTicks + 1, maxTicks);
+      return;
+    }
+    releaseCharge(state, p, cmd, dt);
+    return;
+  }
+  if (held !== null && p.fireCooldown <= 0 && p.grenades.includes(held)) {
+    p.chargingGrenade = held;
+    p.chargeTicks = 0;
+  }
+}
+
+function releaseCharge(state: GameState, p: PlayerState, cmd: InputCommand, dt: number): void {
+  const type = p.chargingGrenade!;
+  const ticks = p.chargeTicks;
+  p.chargingGrenade = null;
+  p.chargeTicks = 0;
   if (p.fireCooldown > 0) return;
   const idx = p.grenades.indexOf(type);
   if (idx < 0) return;
   p.grenades.splice(idx, 1);
-  spawnGrenade(state, p.id, p.pos, p.angle, type, flat);
+  // Walk held = underhand flat roll (stays low, bounces off walls);
+  // otherwise the throw is an overhand arc that clears walls.
+  const flat = (cmd.buttons & Buttons.Walk) !== 0;
+  spawnGrenade(state, p.id, p.pos, p.angle, type, flat, grenadeChargeSpeed(ticks, dt));
   p.fireCooldown = Math.max(p.fireCooldown, GRENADE_THROW_LOCKOUT_SEC);
 }
 
@@ -166,11 +230,12 @@ function grenadeLaunch(
   angle: number,
   type: GrenadeType,
   flat: boolean,
+  speed: number,
 ): { pos: Vec2; vel: Vec2; z: number; vz: number; overWall: boolean; fuse: number } {
   const dir = { x: Math.cos(angle), y: Math.sin(angle) };
   return {
     pos: { x: from.x + dir.x * (PLAYER_RADIUS + 4), y: from.y + dir.y * (PLAYER_RADIUS + 4) },
-    vel: { x: dir.x * GRENADE_THROW_SPEED, y: dir.y * GRENADE_THROW_SPEED },
+    vel: { x: dir.x * speed, y: dir.y * speed },
     z: 0,
     vz: flat ? 0 : GRENADE_LAUNCH_VZ,
     overWall: false,
@@ -190,8 +255,9 @@ export function spawnGrenade(
   angle: number,
   type: GrenadeType,
   flat = false,
+  speed: number = GRENADE_THROW_SPEED,
 ): void {
-  const l = grenadeLaunch(from, angle, type, flat);
+  const l = grenadeLaunch(from, angle, type, flat, speed);
   state.projectiles.push({
     id: state.nextProjectileId++,
     type,
@@ -282,8 +348,9 @@ export function predictGrenadePath(
   map: SimMap,
   dt: number,
   flat = false,
+  speed: number = GRENADE_THROW_SPEED,
 ): Vec2[] {
-  const g = grenadeLaunch(from, angle, type, flat);
+  const g = grenadeLaunch(from, angle, type, flat, speed);
   const points: Vec2[] = [{ x: g.pos.x, y: g.pos.y }];
   // Fuses are ~1–2s; the guard only exists to survive a bad dt.
   let guard = 1000;

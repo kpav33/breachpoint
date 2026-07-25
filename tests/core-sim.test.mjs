@@ -7,7 +7,15 @@ import { Buttons } from '../src/core/types.ts';
 import { isWall, resolveCircleGrid } from '../src/core/collision.ts';
 import { castRay, raySegmentDist } from '../src/core/raycast.ts';
 import { currentSpreadDeg, damageAtRange, givePrimary } from '../src/core/weapons.ts';
-import { MOVE_SPEED, TICK_RATE, WEAPONS } from '../src/core/config.ts';
+import {
+  GRENADE_CHARGE_GRACE_SEC,
+  GRENADE_CHARGE_TIME_SEC,
+  GRENADE_THROW_SPEED,
+  GRENADE_THROW_SPEED_MIN,
+  MOVE_SPEED,
+  TICK_RATE,
+  WEAPONS,
+} from '../src/core/config.ts';
 import { applyInput, createGameState, createPlayer, stepWorld } from '../src/core/simulation.ts';
 import { parseTiledMap } from '../src/core/map.ts';
 
@@ -94,6 +102,62 @@ function close(a, b, eps = 1e-9) {
   );
 }
 
+// --- Variable throw strength (hold-to-charge) --------------------------------
+{
+  const dt = 1 / TICK_RATE;
+  const grid = {
+    tileSize: 32,
+    width: 30,
+    height: 30,
+    cells: Array.from({ length: 30 }, () => new Array(30).fill(0)),
+  };
+  const map = { grid, segments: [] };
+
+  // Hold the HE throw for `holdTicks` ticks, then release; return the grenade.
+  function throwAfter(holdTicks) {
+    const st = createGameState();
+    const p = createPlayer('p1', 'T', 200, 200);
+    p.grenades = ['he'];
+    st.players['p1'] = p;
+    const cmd = (buttons) => ({ tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons });
+    for (let i = 0; i < holdTicks; i++) applyInput(st, 'p1', cmd(Buttons.ThrowHE), map, dt);
+    applyInput(st, 'p1', cmd(0), map, dt); // release
+    return { g: st.projectiles[0], p };
+  }
+  const speedOf = (g) => Math.hypot(g.vel.x, g.vel.y);
+  const fullHold = Math.ceil((GRENADE_CHARGE_GRACE_SEC + GRENADE_CHARGE_TIME_SEC) / dt) + 3;
+
+  const tap = throwAfter(1);
+  check(tap.g && close(speedOf(tap.g), GRENADE_THROW_SPEED, 1e-6), 'a tap throws at full speed');
+  check(tap.p.grenades.length === 0, 'throwing consumes the grenade');
+  check(tap.p.chargingGrenade === null && tap.p.chargeTicks === 0, 'charge state clears on release');
+
+  const held = throwAfter(fullHold);
+  check(
+    held.g && close(speedOf(held.g), GRENADE_THROW_SPEED_MIN, 1e-6),
+    'a full hold throws at the minimum speed',
+  );
+
+  const mid = throwAfter(Math.ceil(fullHold / 2));
+  const midSpeed = mid.g ? speedOf(mid.g) : 0;
+  check(
+    midSpeed < GRENADE_THROW_SPEED && midSpeed > GRENADE_THROW_SPEED_MIN,
+    'a partial hold lands between full and minimum',
+  );
+
+  // Holding the throw key must not spawn until release.
+  {
+    const st = createGameState();
+    const p = createPlayer('p1', 'T', 200, 200);
+    p.grenades = ['he'];
+    st.players['p1'] = p;
+    for (let i = 0; i < 10; i++) {
+      applyInput(st, 'p1', { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.ThrowHE }, map, dt);
+    }
+    check(st.projectiles.length === 0 && p.chargingGrenade === 'he', 'grenade charges while held, no throw yet');
+  }
+}
+
 // --- Replay determinism + regression hash --------------------------------------
 // A scripted input stream through the real map must always land on the same
 // final state. If this hash changes, the simulation's behavior changed —
@@ -139,7 +203,10 @@ function close(a, b, eps = 1e-9) {
   const h1 = createHash('sha256').update(JSON.stringify(run())).digest('hex').slice(0, 16);
   const h2 = createHash('sha256').update(JSON.stringify(run())).digest('hex').slice(0, 16);
   check(h1 === h2, 'simulation is deterministic (same inputs → same state)');
-  const GOLDEN = 'ae462e63bb4ac404';
+  // Bumped when hold-to-charge added chargingGrenade/chargeTicks to
+  // PlayerState — the replay throws no grenades, so this reflects the two new
+  // serialized fields (null/0), not a behavior change.
+  const GOLDEN = '92d7fe13e2d368d3';
   check(
     h1 === GOLDEN,
     `replay regression hash unchanged (got ${h1}) — a mismatch means sim behavior changed; update GOLDEN only if that was intentional`,

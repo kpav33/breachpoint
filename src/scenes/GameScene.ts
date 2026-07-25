@@ -16,6 +16,8 @@ import {
   BUY_GRACE_SEC,
   DEFUSE_KIT_PRICE,
   GRENADES,
+  GRENADE_THROW_SPEED,
+  GRENADE_THROW_SPEED_MIN,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
   ROUND_TIME_SEC,
@@ -27,7 +29,13 @@ import {
 import type { GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
 import type { MapData } from '../core/map';
 import { spawnZoneRect } from '../core/map';
-import { applyInput, createGameState, createPlayer, stepWorld } from '../core/simulation';
+import {
+  applyInput,
+  createGameState,
+  createPlayer,
+  grenadeChargeSpeed,
+  stepWorld,
+} from '../core/simulation';
 import { isWall } from '../core/collision';
 import { activeWeapon, currentSpreadDeg, givePrimary } from '../core/weapons';
 import { canSee, smokeSegments } from '../core/vision';
@@ -133,6 +141,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
   protected debug!: DebugOverlay;
   protected ui!: UIScene;
   private bombGfx!: Phaser.GameObjects.Graphics;
+  private chargeGfx!: Phaser.GameObjects.Graphics;
   private nadeAirGfx!: Phaser.GameObjects.Graphics;
   private damageIndicatorGfx!: Phaser.GameObjects.Graphics;
   private damageIndicators: { angle: number; age: number }[] = [];
@@ -224,6 +233,9 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.vision = new VisionSystem(this, this.map.segments);
     this.audio = new AudioSystem(this);
     this.bombGfx = this.add.graphics().setDepth(4);
+    // Throw-strength ring around the local player while charging a grenade —
+    // above players (5), under the fog (50).
+    this.chargeGfx = this.add.graphics().setDepth(6);
     // Airborne grenades pass over the extruded walls (20) but stay under the
     // fog (50) — an over-wall throw disappears where you can't see.
     this.nadeAirGfx = this.add.graphics().setDepth(45);
@@ -328,6 +340,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
     const subjectId = this.viewSubjectId();
     this.follow(subjectId);
     const rendered = this.renderPlayers(subjectId);
+    this.drawChargeRing(subjectId, rendered);
     this.audio.setListener(rendered);
     this.audio.updateFootsteps(Object.values(this.state.players), delta / 1000);
     this.vision.update({ x: rendered.x, y: rendered.y }, rendered.angle, this.state.smokes);
@@ -644,6 +657,30 @@ export class GameScene extends Phaser.Scene implements HudSource {
   }
 
   /** Grenades in flight (ground on bombGfx, airborne above the walls) + smoke clouds. */
+  /**
+   * Throw-strength ring around the local player while a grenade is charging.
+   * The arc starts full (a tap = full strength) and depletes as the throw key
+   * is held, reading as "release now for this much distance". Only shown for
+   * the local, living, non-spectated player.
+   */
+  private drawChargeRing(subjectId: string, rendered: RenderSnapshot): void {
+    this.chargeGfx.clear();
+    const me = this.state.players[this.humanId];
+    if (!me || me.hp <= 0 || subjectId !== this.humanId || me.chargingGrenade === null) return;
+    const speed = grenadeChargeSpeed(me.chargeTicks, FIXED_DT);
+    const strength =
+      (speed - GRENADE_THROW_SPEED_MIN) / (GRENADE_THROW_SPEED - GRENADE_THROW_SPEED_MIN);
+    const r = PLAYER_RADIUS + 7;
+    const start = -Math.PI / 2;
+    const g = this.chargeGfx;
+    g.lineStyle(3, ME_RING, 0.25);
+    g.strokeCircle(rendered.x, rendered.y, r);
+    g.lineStyle(3, ME_RING, 0.95);
+    g.beginPath();
+    g.arc(rendered.x, rendered.y, r, start, start + Math.PI * 2 * strength);
+    g.strokePath();
+  }
+
   private drawGrenades(): void {
     this.nadeAirGfx.clear();
     for (const p of this.state.projectiles) {

@@ -82,7 +82,11 @@ const CHAT_MAX_LEN = 96;
 const CHAT_WINDOW_MS = 4000;
 const CHAT_MAX_PER_WINDOW = 3;
 
-/** Buttons that fire on key-down; never repeat them when reusing a stale command. */
+/**
+ * Buttons that fire on key-down; never repeat them when reusing a stale
+ * command. Throws are deliberately absent: they're now held (hold-to-charge),
+ * so a stale command must keep the throw key "down" to keep charging.
+ */
 const ONE_SHOT_BUTTONS =
   Buttons.Reload |
   Buttons.SelectMelee |
@@ -90,9 +94,6 @@ const ONE_SHOT_BUTTONS =
   Buttons.SelectPrimary |
   Buttons.NextWeapon |
   Buttons.PrevWeapon |
-  Buttons.ThrowHE |
-  Buttons.ThrowFlash |
-  Buttons.ThrowSmoke |
   Buttons.Drop;
 
 function loadMapData(mapKey: string): MapData {
