@@ -216,7 +216,7 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 - [x] Fill empty slots with bots: shared `BotController` + `assignBotObjectives` (moved to `src/ai/`, runs headless on the server). Teams kept at `TEAM_SIZE`; humans replace bots on join, bots backfill on leave.
 - [x] Deploy: `Dockerfile` (server-only, type-stripping, no build step), `fly.toml`, `docs/DEPLOY.md` (Fly/Railway/VPS + Cloudflare Pages, `VITE_SERVER_URL`, wss, CORS).
 
-**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping. _(Done — deployed and playable online at https://breachpoint.kpav.eu/. Confirmed 2026-07 to feel smooth/non-laggy at ~50ms ping, which vindicates the earlier diagnosis: the original "noticeably laggy" was Render free-tier CPU throttling, not the netcode. Prediction/reconciliation/interpolation are working as intended and need no tuning.)_
+**Done when:** two browsers on different networks play a full match with hit registration that feels fair at ~80ms ping. _(Done — deployed and playable online at https://breachpoint.kpav.eu/. Confirmed 2026-07 to feel smooth/non-laggy at ~50ms ping, which vindicates the earlier diagnosis: the original "noticeably laggy" was Render free-tier CPU throttling, not the netcode. Movement prediction/reconciliation/interpolation are working as intended.)_ **Correction (2026-07, later):** the "smooth" verdict covered movement feel and hit *fairness* only — it never measured **shot feedback latency** or **update rate**. A follow-up review found real problems with how *shooting* feels online (firing isn't predicted, 15 Hz snapshots, 100 ms interp delay). See "Shooting feel" under Phase 9.5 — this line should not be read as "the shooting netcode needs no work."
 
 ---
 
@@ -230,9 +230,58 @@ because of the connection, the server tier, or the code.
 ### Measurement first (dev-facing)
 
 - [x] **Server tick instrumentation:** time each tick (rolling avg/max ms), log it and expose it to clients. This settles "is the sim + bots overrunning the tick budget on Render free?" permanently — a tick overrun is indistinguishable from network lag in the browser — `MatchRoom` keeps a rolling `PERF_WINDOW_SEC` window (avg/max tick ms, bot ms, achieved TPS), logs it every ~10 s, and ships it in every snapshot as `Snapshot.perf`
-- [x] **Fair netcode retest:** two browsers vs a local `npm run server`, then vs a small paid instance. Only after this do we know whether prediction/reconciliation/interp need tuning at all — **local half done (2026-07, headless):** server is nowhere near the tick budget (tick 0.1–0.2 ms avg / 3.8 ms max incl. bots, steady 60 tps with 2 clients + bots); a render-free Node probe measured true RTT 0.8 ms avg / 1.7 ms max and snapshot delivery exactly 15.0/s (gap p95 81 ms vs 66.7 target); reconciliation corrections ~0–1.5/s in-browser. Conclusion: the netcode + sim are healthy — the deployed lag was almost certainly Render free-tier CPU throttling. **Human feel test done (2026-07):** the live deploy at https://breachpoint.kpav.eu/ feels smooth and non-laggy at ~50 ms real ping. Netcode confirmed good — no tuning needed.
+- [x] **Fair netcode retest:** two browsers vs a local `npm run server`, then vs a small paid instance. Only after this do we know whether prediction/reconciliation/interp need tuning at all — **local half done (2026-07, headless):** server is nowhere near the tick budget (tick 0.1–0.2 ms avg / 3.8 ms max incl. bots, steady 60 tps with 2 clients + bots); a render-free Node probe measured true RTT 0.8 ms avg / 1.7 ms max and snapshot delivery exactly 15.0/s (gap p95 81 ms vs 66.7 target); reconciliation corrections ~0–1.5/s in-browser. Conclusion: the netcode + sim are healthy — the deployed lag was almost certainly Render free-tier CPU throttling. **Human feel test done (2026-07):** the live deploy at https://breachpoint.kpav.eu/ feels smooth and non-laggy at ~50 ms real ping — for *movement*. **Superseded (2026-07, later):** this test did not isolate the shooting experience; a code review found the gun feels detached and aiming feels unrewarding online for structural reasons (unpredicted firing + low update rate), unrelated to raw ping. Do not treat "netcode confirmed good" as covering shooting — see "Shooting feel" below.
 - [x] **net_graph-style debug panel** (extend the backtick overlay, per convention): RTT, snapshot arrival rate, interp buffer depth, reconciliation corrections/sec, bytes in/out per second. Build this first — it *is* the measurement tool; the player-facing HUD below is its polished subset — `OnlineGameScene.extendDebug()` adds `net rtt / net snap / net recon / net traffic / server` lines (traffic is ≈JSON size of decoded messages, not wire bytes)
 - [x] **Per-tick cost profiling + bot staggering:** bot LOS raycasts and A\* repaths are the likely hot spots; stagger bot thinking (each bot thinks every Nth tick) — standard, low-risk win that directly helps cheap hosting — bot time is profiled separately in `Snapshot.perf.botMs`; the LOS raycast scan runs every `BOT_SCAN_EVERY_TICKS` (offset per bot), while hearing/movement/aim still update every tick
+
+### Shooting feel — the open netcode issue (diagnosed 2026-07)
+
+Playtest report: shooting online feels janky even at ~50 ms ping — the gun feels
+slightly behind the click, and precise aiming feels pointless (you may as well
+spray). This is **not** raw latency or server throttling (those were ruled out
+above) and **not** the spread/bloom mechanic (that's working as intended and is
+staying). It's three structural choices in the current netcode, in impact order:
+
+1. **Firing is not client-predicted.** `PREDICT_BUTTONS = Buttons.Walk` in
+   `OnlineGameScene` masks out `Buttons.Shoot`; every bit of shot feedback (muzzle
+   flash, gunshot sound, tracer, hit marker) is driven by `state.events`, which on
+   the client only arrive inside snapshots (`drainSimEvents` in `GameScene`, fed by
+   `ingestSnapshots`). So click → feedback = RTT + wait-for-next-server-tick +
+   wait-for-next-snapshot + a client frame ≈ **90–150 ms at 50 ms ping**. This is
+   the "gun feels detached" sensation, and it's the biggest single contributor.
+2. **`SNAPSHOT_RATE` is only 15 Hz (66.7 ms).** It compounds twice: it batches
+   your own shot events (adds up to 66 ms on top of #1), and it means enemy
+   positions update only 15×/s, so you track targets reconstructed from samples
+   66 ms apart — they move in visible steps. The server has huge headroom
+   (tick 0.1–0.2 ms avg), so this is cheap to raise; the cost is bandwidth (JSON
+   snapshots — may need delta/binary encoding if bytes matter).
+3. **`INTERP_DELAY_MS = 100` means you always aim ~100 ms in the past.** Lag
+   compensation rewinds targets to your `viewTick` server-side, so hits still
+   *register* fairly — but the *act of aiming* is against a stale, choppy target.
+   Fairness ≠ feel; the aiming feel is what's off. Combined with #2 this is why
+   precise aim feels unrewarding ("spray and pray" as a rational response, not a
+   spread-mechanic complaint).
+
+Planned work (do the client-only ones first — no protocol/determinism risk):
+
+- [ ] **Predict shot *effects* locally (biggest win).** On click, immediately play
+      the gunshot sound + muzzle flash + local tracer from the predicted player;
+      keep **damage server-authoritative**. Requires de-duplication: tag
+      locally-predicted shots and suppress the local player's own `shot` event when
+      it echoes back in a snapshot (match by input tick). This removes most of the
+      "laggy gun" feel. Client-side; no wire change.
+- [ ] **Raise `SNAPSHOT_RATE` to 20–30 Hz** and retune `INTERP_DELAY_MS` down
+      accordingly (e.g. ~66 ms at 30 Hz — needs ≥1 snapshot interval of buffer).
+      Watch the `net traffic` line; consider delta/binary snapshot encoding if
+      bandwidth becomes the limit. Tune with the net_graph overlay open.
+- [ ] **Re-measure shot feel** after the above, at ~50 and ~80 ms ping.
+
+Reference reading for this specific problem (see Key References): Gambetta parts
+**1–2** (client-side prediction + server reconciliation — the same idea extended to
+firing effects) and the Valve wiki (interp, `cl_updaterate`/`cl_cmdrate` — the
+direct analogue of `SNAPSHOT_RATE` — and how lag comp coexists with interpolation).
+Gambetta part 4 / the Valve lag-comp section describe what's *already* built and
+working; the fixes above live in parts 1–2 plus the update-rate discussion.
 
 ### Player-facing telemetry (standard competitive-game UX)
 
@@ -257,7 +306,7 @@ because of the connection, the server tier, or the code.
 
 - [x] **Tests for `src/core/` + `src/match/`**: collision resolution, raycast intersections, spread/damage falloff, `tryBuy` incl. the `__proto__` injection case, economy math, bomb timing. This is the code both client and server share — exactly where a regression silently breaks multiplayer fairness — **done** in `tests/*.test.mjs` via `npm test`. Deliberate deviation from the original "vitest" note: the plain **node runner + `--experimental-strip-types`** is already how the server loads this exact code, needs zero new dependencies/config, and runs in CI — switch to vitest only if tests ever need Phaser-side mocking
 - [x] **Replay-based regression tests:** record an input stream, replay it through the deterministic sim, assert the final state (hash). Doubles as groundwork for Phase 10 demo/replay recording — **done** in `tests/core-sim.test.mjs`: 600 scripted ticks (movement + burst fire) on de_yard, asserts determinism (two runs identical) and a golden sha256 of the final state. A hash mismatch means sim behavior changed — update the `GOLDEN` constant only when intentional
-- [ ] **Real audio assets:** replace the synthesized WAVs in `public/assets/audio/` (Kenney.nl CC0) — same filenames, no code changes; overdue per the Phase 5 note. **Needs human ears** (19 sounds to audition — see `public/assets/audio/README.md` for the file list); the only Phase 9.5 item left besides the netcode retest
+- [ ] **Real audio assets:** replace the synthesized WAVs in `public/assets/audio/` — same filenames, no code changes; overdue per the Phase 5 note. **Needs human ears** (22 sounds to audition — see `public/assets/audio/README.md`). **Tooling built (2026-07):** `tools/import-audio.mjs` imports CC0 packs (Kenney Impact + Interface, OpenGameArt "Free Firearm Sound Library", "100 CC0 SFX") — it ffmpeg-converts to mono 22 kHz WAV, auto-trims one shot out of the long multi-shot firearm recordings, pitches the bomb blast down to distinguish it from HE, and two-pass peak-normalizes, all driven by a `MAP` table (swap picks + re-run). **First CC0 pass rejected (2026-07):** the user auditioned that specific mapping and preferred the original synthesized placeholders (cleaner/arcade character), so the placeholders were regenerated (`node tools/generate-audio.mjs`) and remain in place. Still open — either curate better-fitting CC0 clips through the same script, or keep the synth set for launch. The script + sourcing notes stay as the starting point for a future attempt.
 - [x] **Protocol version handshake:** add a `PROTOCOL_VERSION` constant to `protocol.ts`, sent in join options and checked in `onAuth`/`onJoin` — the deployed client (Netlify) and server (Render) ship independently, so a wire-format change silently breaks live clients with confusing symptoms instead of a clear "please refresh" error — **done** (checked in `onJoin`; reconnections skip it so held seats survive). Currently version 2 (the Phase 9.5 additions were already breaking). **Bump it on any wire-format change**
 - [x] **CI (GitHub Actions):** no workflows exist — run `npm run lint` + `npm run build` (+ tests once they exist) on push, so a broken commit can't reach the deploy hooks unnoticed — **done:** `.github/workflows/ci.yml` runs lint + build + `npm test` on pushes to main and on PRs (Node 22, npm cache)
 

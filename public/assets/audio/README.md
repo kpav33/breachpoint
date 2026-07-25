@@ -8,6 +8,12 @@ shipping — keep the **same filenames** and nothing in the code changes
 Sourcing (from docs/PLAN.md Phase 5): Kenney.nl audio packs (CC0,
 shippable) or Freesound.org (verify each license).
 
+To import real CC0 assets, use `node tools/import-audio.mjs` — it converts a
+set of downloaded CC0 packs to the exact format/filenames here (driven by a
+`MAP` table you can edit). Note: the first CC0 mapping was auditioned and
+rejected in favour of these synth placeholders (see the "Real audio assets"
+item in docs/PLAN.md); the script remains the starting point for a better pass.
+
 | File | Used for |
 |------|----------|
 | `shot_knife.wav` | knife swing |
