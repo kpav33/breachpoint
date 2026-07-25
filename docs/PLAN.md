@@ -234,6 +234,60 @@ because of the connection, the server tier, or the code.
 - [x] **net_graph-style debug panel** (extend the backtick overlay, per convention): RTT, snapshot arrival rate, interp buffer depth, reconciliation corrections/sec, bytes in/out per second. Build this first — it *is* the measurement tool; the player-facing HUD below is its polished subset — `OnlineGameScene.extendDebug()` adds `net rtt / net snap / net recon / net traffic / server` lines (traffic is ≈JSON size of decoded messages, not wire bytes)
 - [x] **Per-tick cost profiling + bot staggering:** bot LOS raycasts and A\* repaths are the likely hot spots; stagger bot thinking (each bot thinks every Nth tick) — standard, low-risk win that directly helps cheap hosting — bot time is profiled separately in `Snapshot.perf.botMs`; the LOS raycast scan runs every `BOT_SCAN_EVERY_TICKS` (offset per bot), while hearing/movement/aim still update every tick
 
+### Gunplay fidelity pass (CS-alignment) — do BEFORE the netcode work
+
+Audited 2026-07 against CS gunplay. The core loop already matches CS (hitscan, bloom
+= shoot-too-fast drift, movement penalty, range falloff, armor, per-weapon move
+speed, reload-cancel-on-switch, switch time). These items close the remaining gaps.
+The netcode "Shooting feel" work below is deliberately sequenced **last**, as the
+most complex part — this pass lands first.
+
+Cross-cutting costs: these are `core/` changes, so they affect **online and offline
+identically**, will bump the **golden replay hash** once (intentional sim-behavior
+change), and several add small `PlayerState` fields → expect **one
+`PROTOCOL_VERSION` bump** for the batch. Exact field/wire details decided at
+implementation.
+
+- [ ] **First-shot accuracy (laser-perfect).** Do this one first — trivial, unblocks
+      the "aiming matters" feel. `spreadBaseDeg` → **0** for rifle, smg, pistol,
+      deagle so a stationary, unbloomed first shot is dead-center. Keep shotgun (4°)
+      and sniper (0.1°). Movement penalty (`spreadMoveDeg`) and per-shot `bloom*`
+      unchanged → tap for precision, spray/movement drift. Bots add their own
+      `aimErrorDeg` on top, so the lethality rebalance is minor (quick sanity-check).
+- [ ] **Semi-auto fire modes.** Add `auto: boolean` to `WeaponDef`; **true only for
+      smg + rifle**. Everything else (pistol, deagle, sniper, shotgun, knife) fires
+      **one shot per trigger press** — holding the button no longer auto-sprays them
+      at RPM (today `tryFire` gates on `fireCooldown` only, so held-mouse sprays
+      everything). Needs trigger-edge detection in the sim (track the previous
+      trigger state per player); coordinate with netcode Workstream A, which also
+      touches the fire path.
+- [ ] **Accuracy recovery after stopping (counter-strafe analogue).** Today accuracy
+      is pinpoint one tick after velocity hits 0. Add a short, tunable recovery ramp
+      so you must *settle* briefly after moving before the move-penalty fully clears
+      — rewards stopping before you shoot, like CS. Keep it short so it doesn't feel
+      sluggish.
+- [ ] **Tagging (getting shot slows you).** On taking a bullet, apply a decaying
+      movement-speed penalty (a "tagged" factor that recovers over a fraction of a
+      second). Shapes peek/hold duels the CS way. Adds a small `PlayerState` timer.
+- [ ] **Shotgun shell-by-shell reload.** Reload one shell at a time, cancelable
+      mid-reload to fire, instead of the current whole-mag refill after `reloadTime`
+      (`tickTimers`). CS pump-shotgun feel.
+- [ ] **Auto-reload on empty mag.** When the active weapon's mag hits 0 and reserve
+      > 0, start the reload automatically — no manual R needed (manual R still works
+      early). Simple: call the existing `tryStartReload` when `magAmmo` reaches 0.
+
+Recorded decisions (no code — so they aren't re-litigated):
+
+- **Keep random-bloom spread, NOT deterministic CS spray patterns.** Deterministic
+  recoil doesn't map to cursor-aim — the crosshair *is* the mouse, so there's
+  nothing to "pull down" (also why mouse-sensitivity is N/A). Random bloom is the
+  correct analogue and still rewards tap/burst over spray.
+- **No headshots / hitboxes** — 2D circle players take uniform damage; locked by the
+  top-down art direction.
+- **Wall penetration (wallbangs) deferred** — rays stop at the first wall for now; a
+  penetration model (damage-reduced pass-through on thin walls) is a possible future
+  addition, explicitly out of this pass.
+
 ### Shooting feel — the open netcode issue (diagnosed 2026-07)
 
 Playtest report: shooting online feels janky even at ~50 ms ping — the gun feels
@@ -262,19 +316,55 @@ staying). It's three structural choices in the current netcode, in impact order:
    precise aim feels unrewarding ("spray and pray" as a rational response, not a
    spread-mechanic complaint).
 
-Planned work (do the client-only ones first — no protocol/determinism risk):
+Planned work — **sequenced last**, after the Gunplay fidelity pass above (netcode is
+the most complex part). Two workstreams: **A** (the isolated big feel win) shipped
+and measured before **B** (tuning, whose numbers are best chosen against a live
+feel-test after A). Decisions locked with the user 2026-07: **predict the full local
+gun state** (not effects only) and draw the **predicted tracer centered on aim** (not
+spread — simplest, and it never visually lies about where you aimed).
 
-- [ ] **Predict shot *effects* locally (biggest win).** On click, immediately play
-      the gunshot sound + muzzle flash + local tracer from the predicted player;
-      keep **damage server-authoritative**. Requires de-duplication: tag
-      locally-predicted shots and suppress the local player's own `shot` event when
-      it echoes back in a snapshot (match by input tick). This removes most of the
-      "laggy gun" feel. Client-side; no wire change.
-- [ ] **Raise `SNAPSHOT_RATE` to 20–30 Hz** and retune `INTERP_DELAY_MS` down
-      accordingly (e.g. ~66 ms at 30 Hz — needs ≥1 snapshot interval of buffer).
-      Watch the `net traffic` line; consider delta/binary snapshot encoding if
-      bandwidth becomes the limit. Tune with the net_graph overlay open.
-- [ ] **Re-measure shot feel** after the above, at ~50 and ~80 ms ping.
+Key insight that makes A safe: the client's prediction scratch state holds **only
+the local player** (`predictScratch` in `OnlineGameScene`), and `firePellet` finds
+targets by iterating `state.players`. With no other players present, predicted
+firing physically cannot apply damage or emit death events — the effect/damage
+split is free. So the de-dup rule is simply: **the local player renders their own
+shots from prediction; the server's echoed `shot` event supplies only hit
+confirmation** (hit marker, victim flash, damage numbers — what only the server
+knows). No per-event tick-matching needed.
+
+**Workstream A — predict local shot feedback** (client-only; no `core/` change, no
+protocol bump, no golden-hash change; offline play untouched):
+
+- [ ] Extend `PREDICT_BUTTONS` to add Shoot + Reload + weapon-switch (Select*/Next/
+      Prev). **Grenades stay server-authoritative** — they spawn world projectiles
+      that would ghost/desync if predicted, so Throw* is deliberately excluded.
+- [ ] Split effect-rendering from reconciliation replay: `reconcile`'s replay of
+      pending inputs must stay **silent**; only the live `predictTick` renders new
+      predicted effects. That presents each shot exactly once (rendered when live,
+      replayed silently until acked).
+- [ ] Route predicted `shot`/`reload` events from the scratch state into the
+      existing effects/audio path — muzzle flash, gunshot, tracer, bloom, ammo
+      decrement, reload timer all become instant. Predicted tracer is **centered on
+      aim** (recompute endpoint via a centered wall raycast); the sim still rolls
+      real spread server-side for the actual hit.
+- [ ] Add a protected seam in `drainSimEvents` (base `GameScene`) so
+      `OnlineGameScene` suppresses the *presentational* part of the local player's
+      own `shot`/`reload` echoes (keep the `hitPlayerId` block). Death/grenade/hit
+      events still come from the server — you never predict your own death.
+- [ ] Extend the net_graph overlay: predicted-shots/s + a prediction-vs-server
+      mismatch counter (invisible-state convention; catches reconcile regressions —
+      e.g. a dropped input causing a one-frame phantom flash before ammo snaps).
+- [ ] Playtest at ~50 ms: confirm the gun responds to clicks; watch the mismatch
+      counter stays near zero.
+
+**Workstream B — update-rate + interp tuning** (after A, measurement-driven; no
+protocol bump, no core change):
+
+- [ ] `SNAPSHOT_RATE` 15 → 30 (every 2nd server tick — server has the headroom).
+- [ ] `INTERP_DELAY_MS` 100 → ~50 (≥1.5 snapshot intervals of cushion at 30 Hz).
+- [ ] Read `net traffic` under load; if bandwidth bites, note delta/binary snapshot
+      encoding as a **follow-up** (don't build speculatively).
+- [ ] Re-test tracking smoothness + shot feel at ~50 and ~80 ms ping.
 
 Reference reading for this specific problem (see Key References): Gambetta parts
 **1–2** (client-side prediction + server reconciliation — the same idea extended to
