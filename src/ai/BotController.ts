@@ -4,28 +4,64 @@
 // src/game/) and uses .ts-extension imports + no parameter properties, so
 // the headless server can run it under `node --experimental-strip-types`.
 import { Buttons } from '../core/types.ts';
-import type { GameState, InputCommand, PlayerState, SimEvent, Vec2 } from '../core/types.ts';
+import type {
+  GameState,
+  GrenadeType,
+  InputCommand,
+  PlayerState,
+  SimEvent,
+  Vec2,
+} from '../core/types.ts';
 import type { MapData } from '../core/map.ts';
 import { canSee, smokeSegments } from '../core/vision.ts';
 import { findPath, smoothPath } from '../core/pathfinding.ts';
+import { grenadeChargeSpeed, predictGrenadePath } from '../core/simulation.ts';
 import {
   BOT_AIM_JITTER_SEC,
   BOT_ENGAGE_RANGE_PX,
+  BOT_FLASH_MAX_DIST_PX,
+  BOT_FLASH_MIN_DIST_PX,
   BOT_FOOTSTEP_MIN_SPEED,
+  BOT_GRENADE_COOLDOWN_SEC,
   BOT_GUARD_TURN_RATE,
+  BOT_HE_MAX_DIST_PX,
   BOT_REPATH_SEC,
   BOT_SCAN_EVERY_TICKS,
   BOT_SEARCH_SEC,
   BOT_SEARCH_TURN_RATE,
+  BOT_SMOKE_SETUP_RANGE_PX,
   BOT_STRAFE_MAX_SEC,
   BOT_STRAFE_MIN_SEC,
   BOT_STUCK_SEC,
   BOT_WAYPOINT_REACHED_PX,
+  BOT_THROW_CHARGE_STEPS,
+  BOT_THROW_PREPUSH_DELAY_SEC,
+  BOT_THROW_REPLAN_SEC,
+  BOT_THROW_TOLERANCE_PX,
+  HE_RADIUS_PX,
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
+  SMOKE_RADIUS_PX,
   WEAPONS,
 } from '../core/config.ts';
 import type { BotProfile } from '../core/config.ts';
+
+/** A committed multi-tick throw: aim held steady, charge the key, then release. */
+interface PendingThrow {
+  type: GrenadeType;
+  angle: number;
+  /** Ticks to hold the throw key before releasing (controls charge → distance). */
+  holdTicks: number;
+  ticksHeld: number;
+  /** Where the dry-run said it will land — for the debug overlay. */
+  target: Vec2;
+}
+
+const THROW_BUTTON: Record<GrenadeType, number> = {
+  he: Buttons.ThrowHE,
+  flash: Buttons.ThrowFlash,
+  smoke: Buttons.ThrowSmoke,
+};
 
 export type BotState = 'patrol' | 'engage' | 'hunt' | 'retreat';
 
@@ -71,6 +107,14 @@ export class BotController {
   private guardAngle = 0;
   /** Seconds of flashbang blindness remaining. */
   private blindLeft = 0;
+  /** Seconds until this bot may throw another grenade. */
+  private throwCooldown = 0;
+  /** Seconds until the next throw-planning dry-run (bounds its cost). */
+  private planCooldown = 0;
+  /** A committed throw being wound up over several ticks (null = none). */
+  private pendingThrow: PendingThrow | null = null;
+  /** The last-known spot we already flashed, so we don't re-flash it. */
+  private flashedLead: Vec2 | null = null;
   /** Ticks until the next LOS raycast scan (staggered per bot, Phase 9.5). */
   private scanCountdown = 0;
   /** Enemy sighted by the last scan; tracked between scans while alive. */
@@ -147,6 +191,10 @@ export class BotController {
     this.searchLeft = 0;
     this.onStation = false;
     this.blindLeft = 0;
+    this.pendingThrow = null;
+    this.flashedLead = null;
+    // throwCooldown deliberately survives respawn so a fresh round doesn't let
+    // a bot instantly chuck everything; it drains over the buy/first seconds.
   }
 
   /** Gunshots set last-known-position when in earshot (walls don't block sound). */
@@ -173,6 +221,10 @@ export class BotController {
     const target = this.perceive(gameState, me, dt);
     this.transition(me, target);
 
+    // A grenade throw (in progress, or freshly decided) owns the bot for its
+    // wind-up ticks: it aims, holds the key, and releases — no moving/shooting.
+    if (this.stepGrenades(gameState, me, cmd, dt)) return cmd;
+
     switch (this.state) {
       case 'engage':
         this.doEngage(me, target!, cmd, dt);
@@ -193,8 +245,25 @@ export class BotController {
   }
 
   /** For the debug overlay: current path and the point being chased. */
-  get debugInfo(): { state: BotState; path: Vec2[]; pathIndex: number; lastKnown: Vec2 | null } {
-    return { state: this.state, path: this.path, pathIndex: this.pathIndex, lastKnown: this.lastKnown };
+  get debugInfo(): {
+    state: BotState;
+    path: Vec2[];
+    pathIndex: number;
+    lastKnown: Vec2 | null;
+    throwTarget: Vec2 | null;
+  } {
+    return {
+      state: this.state,
+      path: this.path,
+      pathIndex: this.pathIndex,
+      lastKnown: this.lastKnown,
+      throwTarget: this.pendingThrow?.target ?? null,
+    };
+  }
+
+  /** Whether this bot buys/uses grenades (difficulty-gated). */
+  get usesUtility(): boolean {
+    return this.profile.usesUtility;
   }
 
   // --- Perception -----------------------------------------------------
@@ -279,6 +348,8 @@ export class BotController {
       this.state = next;
       this.clearPath();
       if (next === 'engage') this.strafeLeft = 0;
+      // Lead fully lost: allow flashing the next corner we get a lead on.
+      if (next === 'patrol') this.flashedLead = null;
     }
   }
 
@@ -405,6 +476,142 @@ export class BotController {
       this.guardAngle += BOT_GUARD_TURN_RATE * dt;
       cmd.aimAngle = this.guardAngle;
     }
+  }
+
+  // --- Grenades ---------------------------------------------------------
+
+  /**
+   * Decide and carry out grenade throws. Returns true while a throw is winding
+   * up (the bot stands still, faces the target, holds then releases the key),
+   * so the caller skips normal movement/fire. Throws are never blind: a plan is
+   * committed only if a dry-run of the deterministic grenade sim lands within
+   * BOT_THROW_TOLERANCE_PX of the intended target — otherwise the bot keeps the
+   * nade rather than lob it into a wall.
+   */
+  private stepGrenades(gameState: GameState, me: PlayerState, cmd: InputCommand, dt: number): boolean {
+    this.throwCooldown = Math.max(0, this.throwCooldown - dt);
+    this.planCooldown = Math.max(0, this.planCooldown - dt);
+    if (!this.profile.usesUtility) return false;
+
+    if (this.pendingThrow) {
+      this.executePendingThrow(cmd);
+      return true;
+    }
+    if (this.throwCooldown > 0 || this.planCooldown > 0 || this.blindLeft > 0) return false;
+    if (me.fireCooldown > 0) return false; // mid gun-cooldown: the sim won't start a charge
+
+    this.planCooldown = BOT_THROW_REPLAN_SEC; // bound the dry-run cost
+    const plan = this.considerThrow(gameState, me, dt);
+    if (!plan) return false;
+    this.pendingThrow = { ...plan, ticksHeld: 0 };
+    this.executePendingThrow(cmd);
+    return true;
+  }
+
+  /** Hold the throw key steady for holdTicks, then release (spawns the nade). */
+  private executePendingThrow(cmd: InputCommand): void {
+    const t = this.pendingThrow!;
+    cmd.moveX = 0;
+    cmd.moveY = 0;
+    cmd.aimAngle = t.angle;
+    if (t.ticksHeld < t.holdTicks) {
+      cmd.buttons |= THROW_BUTTON[t.type];
+      t.ticksHeld++;
+      return;
+    }
+    // Release tick: leave the throw bit clear so the sim launches the grenade.
+    this.pendingThrow = null;
+    this.throwCooldown = BOT_GRENADE_COOLDOWN_SEC;
+    if (t.type === 'flash') {
+      // Don't peek into our own flash — hold before advancing so it pops first.
+      this.reactionLeft = Math.max(this.reactionLeft, BOT_THROW_PREPUSH_DELAY_SEC);
+    }
+  }
+
+  /** Pick the most useful throw available right now, or null. */
+  private considerThrow(
+    gameState: GameState,
+    me: PlayerState,
+    dt: number,
+  ): Omit<PendingThrow, 'ticksHeld'> | null {
+    const g = me.grenades;
+
+    // 1) Smoke an executing bombsite that isn't smoked yet (T attackers, while
+    //    approaching — never mid-fight).
+    if (this.state === 'patrol' && me.team === 'T' && g.includes('smoke') && this.objective && !this.objective.holdUse) {
+      const site = this.objective.pos;
+      const d = Math.hypot(site.x - me.pos.x, site.y - me.pos.y);
+      if (d > 90 && d < BOT_SMOKE_SETUP_RANGE_PX && !this.smokeCovers(gameState, site)) {
+        const plan = this.planThrow(me, 'smoke', site, dt);
+        if (plan) return plan;
+      }
+    }
+
+    // 2) Flash a known enemy corner before pushing it (lost sight = hunt).
+    if (this.state === 'hunt' && this.lastKnown && g.includes('flash')) {
+      const d = Math.hypot(this.lastKnown.x - me.pos.x, this.lastKnown.y - me.pos.y);
+      if (
+        d > BOT_FLASH_MIN_DIST_PX &&
+        d < BOT_FLASH_MAX_DIST_PX &&
+        !this.sameSpot(this.flashedLead, this.lastKnown)
+      ) {
+        const plan = this.planThrow(me, 'flash', this.lastKnown, dt);
+        if (plan) {
+          this.flashedLead = { x: this.lastKnown.x, y: this.lastKnown.y };
+          return plan;
+        }
+      }
+    }
+
+    // 3) HE a known enemy position (never on top of ourselves).
+    if (this.state === 'hunt' && this.lastKnown && g.includes('he')) {
+      const d = Math.hypot(this.lastKnown.x - me.pos.x, this.lastKnown.y - me.pos.y);
+      if (d > HE_RADIUS_PX * 0.8 && d < BOT_HE_MAX_DIST_PX) {
+        const plan = this.planThrow(me, 'he', this.lastKnown, dt);
+        if (plan) return plan;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Dry-run the grenade sim for a handful of charge levels (both the overhand
+   * arc and the flat roll), aimed straight at `target`, and return the throw
+   * whose landing spot is nearest — but only if it lands within tolerance (and,
+   * for HE, not on top of the bot). Null = nothing lands well enough.
+   */
+  private planThrow(
+    me: PlayerState,
+    type: GrenadeType,
+    target: Vec2,
+    dt: number,
+  ): Omit<PendingThrow, 'ticksHeld'> | null {
+    const angle = Math.atan2(target.y - me.pos.y, target.x - me.pos.x);
+    let best: { d: number; holdTicks: number; end: Vec2 } | null = null;
+    for (const flat of [false, true]) {
+      for (const charge of BOT_THROW_CHARGE_STEPS) {
+        const speed = grenadeChargeSpeed(charge, dt);
+        const path = predictGrenadePath(me.pos, angle, type, this.map, dt, flat, speed);
+        const end = path[path.length - 1];
+        const d = Math.hypot(end.x - target.x, end.y - target.y);
+        // holdTicks = charge + 1: the sim's chargeTicks lands on `charge`.
+        if (!best || d < best.d) best = { d, holdTicks: charge + 1, end };
+      }
+    }
+    if (!best || best.d > BOT_THROW_TOLERANCE_PX) return null;
+    if (type === 'he' && Math.hypot(best.end.x - me.pos.x, best.end.y - me.pos.y) < HE_RADIUS_PX * 0.8) {
+      return null;
+    }
+    return { type, angle, holdTicks: best.holdTicks, target: { x: best.end.x, y: best.end.y } };
+  }
+
+  private smokeCovers(gameState: GameState, pt: Vec2): boolean {
+    return gameState.smokes.some((s) => Math.hypot(s.pos.x - pt.x, s.pos.y - pt.y) < SMOKE_RADIUS_PX);
+  }
+
+  private sameSpot(a: Vec2 | null, b: Vec2 | null): boolean {
+    return !!a && !!b && Math.hypot(a.x - b.x, a.y - b.y) < 48;
   }
 
   // --- Firing -----------------------------------------------------------

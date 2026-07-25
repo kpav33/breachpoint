@@ -181,6 +181,8 @@ export interface BotProfile {
   hearingRangePx: number;
   /** Fall back below this hp fraction (0 = never retreats). */
   retreatHpFrac: number;
+  /** Buy and throw grenades (smoke executes, flash/HE known positions). */
+  usesUtility: boolean;
 }
 
 export const BOT_PROFILES: Record<BotDifficulty, BotProfile> = {
@@ -193,6 +195,7 @@ export const BOT_PROFILES: Record<BotDifficulty, BotProfile> = {
     burstPauseSec: 0.7,
     hearingRangePx: 450,
     retreatHpFrac: 0.35,
+    usesUtility: false,
   },
   normal: {
     reactionSec: 0.32,
@@ -203,6 +206,7 @@ export const BOT_PROFILES: Record<BotDifficulty, BotProfile> = {
     burstPauseSec: 0.45,
     hearingRangePx: 700,
     retreatHpFrac: 0.25,
+    usesUtility: true,
   },
   hard: {
     reactionSec: 0.2,
@@ -213,6 +217,7 @@ export const BOT_PROFILES: Record<BotDifficulty, BotProfile> = {
     burstPauseSec: 0.28,
     hearingRangePx: 950,
     retreatHpFrac: 0.12,
+    usesUtility: true,
   },
 };
 
@@ -244,6 +249,28 @@ export const BOT_ENGAGE_RANGE_PX = 520;
 export const BOT_AIM_JITTER_SEC = 0.12;
 /** Aim sweep speed while standing guard on an objective, rad/s. */
 export const BOT_GUARD_TURN_RATE = 1.2;
+
+// --- Bot grenade use ---------------------------------------------------------
+// Bots plan throws by dry-running the deterministic grenade sim for a handful
+// of charge levels and only commit when a candidate lands near the intended
+// target (so they never throw blindly into a wall or a corner they can't reach).
+/** Minimum seconds between one bot's grenade throws. */
+export const BOT_GRENADE_COOLDOWN_SEC = 6;
+/** A planned throw is accepted only if it lands within this of the target, px. */
+export const BOT_THROW_TOLERANCE_PX = 60;
+/** Min seconds between throw-planning dry-runs (bounds their CPU cost). */
+export const BOT_THROW_REPLAN_SEC = 0.35;
+/** Charge levels (held ticks) the planner samples: 0 = full-power tap. */
+export const BOT_THROW_CHARGE_STEPS = [0, 6, 12, 18, 26, 34, 44];
+/** After flashing a spot, wait this long before advancing so the flash pops. */
+export const BOT_THROW_PREPUSH_DELAY_SEC = 1.1;
+/** Flash a known enemy position only within this distance band, px. */
+export const BOT_FLASH_MIN_DIST_PX = 150;
+export const BOT_FLASH_MAX_DIST_PX = 560;
+/** HE a known enemy position within this range (and never at the bot's feet). */
+export const BOT_HE_MAX_DIST_PX = 520;
+/** Smoke an executing bombsite when within this range of it, px. */
+export const BOT_SMOKE_SETUP_RANGE_PX = 440;
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   knife: {

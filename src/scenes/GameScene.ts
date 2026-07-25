@@ -840,6 +840,13 @@ export class GameScene extends Phaser.Scene implements HudSource {
       if (this.state.players[id].team === 'CT') {
         tryBuy(this.match, this.state, this.map, id, 'kit');
       }
+      // Utility-using bots kit out with grenades if the economy allows (tryBuy
+      // no-ops when broke, so eco rounds just skip these).
+      if (this.bots[id].usesUtility) {
+        for (const nade of ['smoke', 'flash', 'he'] as const) {
+          tryBuy(this.match, this.state, this.map, id, nade);
+        }
+      }
     }
   }
 
@@ -1021,7 +1028,8 @@ export class GameScene extends Phaser.Scene implements HudSource {
     this.debug.setLine('spread', `${currentSpreadDeg(player).toFixed(2)}°`);
     for (const [id, bot] of Object.entries(this.bots)) {
       const hp = this.state.players[id].hp;
-      this.debug.setLine(id, `${bot.debugInfo.state} hp:${hp}${this.botsFrozen ? ' (frozen F6)' : ''}`);
+      const nade = bot.debugInfo.throwTarget ? ' ⟶nade' : '';
+      this.debug.setLine(id, `${bot.debugInfo.state}${nade} hp:${hp}${this.botsFrozen ? ' (frozen F6)' : ''}`);
     }
     this.debug.setLine(
       'vision',
@@ -1119,6 +1127,12 @@ export class GameScene extends Phaser.Scene implements HudSource {
           info.lastKnown.x - 6, info.lastKnown.y - 6,
           info.lastKnown.x + 6, info.lastKnown.y + 6,
         );
+      }
+      // Grenade being wound up: line from the bot to its planned landing spot.
+      if (info.throwTarget) {
+        g.lineStyle(1, 0x66ffcc, 0.95);
+        g.lineBetween(bot.pos.x, bot.pos.y, info.throwTarget.x, info.throwTarget.y);
+        g.strokeCircle(info.throwTarget.x, info.throwTarget.y, 10);
       }
     }
   }

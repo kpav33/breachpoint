@@ -644,6 +644,12 @@ export class MatchRoom extends Room {
       if (this.game.players[id]?.team === 'CT') {
         tryBuy(this.match, this.game, this.map, id, 'kit');
       }
+      // Utility-using bots kit out with grenades when the economy allows.
+      if (this.bots[id].usesUtility) {
+        for (const nade of ['smoke', 'flash', 'he'] as const) {
+          tryBuy(this.match, this.game, this.map, id, nade);
+        }
+      }
     }
   }
 
