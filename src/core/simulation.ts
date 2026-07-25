@@ -1,5 +1,6 @@
 import { Buttons } from './types.ts';
 import type {
+  DeathCause,
   GameState,
   GrenadeType,
   InputCommand,
@@ -105,6 +106,7 @@ export function damagePlayer(
   playerId: string,
   damage: number,
   killerId: string,
+  cause: DeathCause,
 ): void {
   const p = state.players[playerId];
   if (!p || p.hp <= 0) return;
@@ -113,7 +115,7 @@ export function damagePlayer(
   p.armor -= absorbed;
   p.hp = Math.max(0, p.hp - (damage - absorbed));
   if (p.hp === 0) {
-    state.events.push({ type: 'death', playerId: p.id, killerId });
+    state.events.push({ type: 'death', playerId: p.id, killerId, cause });
   }
 }
 
@@ -380,7 +382,7 @@ function explodeHE(state: GameState, g: ProjectileState): void {
     if (!FRIENDLY_FIRE && owner && q.team === owner.team && q.id !== g.ownerId) continue;
     const dist = Math.hypot(q.pos.x - g.pos.x, q.pos.y - g.pos.y);
     if (dist >= HE_RADIUS_PX) continue;
-    damagePlayer(state, q.id, Math.round(HE_DAMAGE * (1 - dist / HE_RADIUS_PX)), g.ownerId);
+    damagePlayer(state, q.id, Math.round(HE_DAMAGE * (1 - dist / HE_RADIUS_PX)), g.ownerId, 'he');
   }
 }
 
@@ -502,7 +504,7 @@ function firePellet(
   }
 
   if (victim) {
-    damagePlayer(state, victim.id, Math.round(damageAtRange(def, hitDist)), shooter.id);
+    damagePlayer(state, victim.id, Math.round(damageAtRange(def, hitDist)), shooter.id, def.id);
   }
 
   const muzzle = PLAYER_RADIUS + 2;

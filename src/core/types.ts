@@ -118,6 +118,9 @@ export interface PlayerState {
 
 export type GrenadeType = 'he' | 'flash' | 'smoke';
 
+/** What killed a player: a weapon (gunfire/knife), an HE grenade, or the bomb. */
+export type DeathCause = WeaponId | 'he' | 'bomb';
+
 /** A thrown grenade in flight. */
 export interface ProjectileState {
   id: number;
@@ -156,7 +159,7 @@ export type SimEvent =
       hit: 'wall' | 'player' | 'none';
       hitPlayerId?: string;
     }
-  | { type: 'death'; playerId: string; killerId: string }
+  | { type: 'death'; playerId: string; killerId: string; cause: DeathCause }
   | { type: 'reload'; playerId: string; weaponId: WeaponId }
   | { type: 'grenade_throw'; playerId: string; gtype: GrenadeType; from: Vec2 }
   /** For smoke this marks activation — the cloud lives in state.smokes. */

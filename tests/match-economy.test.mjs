@@ -105,7 +105,7 @@ const useCmd = { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.Use 
   advance(match, game, 20);
   const shooter = match.stats.c1.money;
   updateMatch(match, game, {}, map, [
-    { type: 'death', playerId: 't1', killerId: 'c1' },
+    { type: 'death', playerId: 't1', killerId: 'c1', cause: 'rifle' },
   ], DT);
   check(match.stats.c1.money === shooter + KILL_REWARD, 'kill pays KILL_REWARD immediately');
 }

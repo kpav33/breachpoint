@@ -4,6 +4,7 @@
 // the future server runs this file unchanged.
 import { Buttons } from '../core/types.ts';
 import type {
+  DeathCause,
   GameState,
   GrenadeType,
   InputCommand,
@@ -92,7 +93,7 @@ export type MatchEvent =
   | { type: 'exploded'; pos: Vec2 }
   | { type: 'bomb_dropped'; pos: Vec2 }
   | { type: 'bomb_pickup'; playerId: string }
-  | { type: 'kill'; killerId: string; victimId: string };
+  | { type: 'kill'; killerId: string; victimId: string; cause: DeathCause };
 
 export interface MatchState {
   phase: MatchPhase;
@@ -412,7 +413,7 @@ function processDeaths(match: MatchState, game: GameState, tickEvents: SimEvent[
         addMoney(killerStats, KILL_REWARD);
       }
     }
-    match.events.push({ type: 'kill', killerId: ev.killerId, victimId: ev.playerId });
+    match.events.push({ type: 'kill', killerId: ev.killerId, victimId: ev.playerId, cause: ev.cause });
 
     // The victim's best gun hits the ground where they fell (eco scavenging).
     if (victim) dropBestWeapon(match, victim, victim.pos);
@@ -672,7 +673,7 @@ function explode(match: MatchState, game: GameState, at: Vec2): void {
     const dist = Math.hypot(p.pos.x - at.x, p.pos.y - at.y);
     if (dist >= BOMB_RADIUS_PX) continue;
     const dmg = Math.round(BOMB_DAMAGE * (1 - dist / BOMB_RADIUS_PX));
-    damagePlayer(game, p.id, dmg, 'bomb');
+    damagePlayer(game, p.id, dmg, 'bomb', 'bomb');
   }
   processDeaths(match, game, game.events.slice(evStart));
   match.events.push({ type: 'exploded', pos: { x: at.x, y: at.y } });

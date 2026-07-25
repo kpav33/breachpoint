@@ -26,7 +26,7 @@ import {
   TICK_RATE,
   WEAPONS,
 } from '../core/config';
-import type { GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
+import type { DeathCause, GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
 import type { MapData } from '../core/map';
 import { spawnZoneRect } from '../core/map';
 import {
@@ -105,6 +105,13 @@ const BUY_ITEMS: { item: BuyItem; label: string }[] = [
 const FIXED_DT = 1 / TICK_RATE;
 /** Cap per-frame delta so a background tab doesn't spiral the accumulator. */
 const MAX_FRAME_DELTA_MS = 250;
+
+/** Kill-feed label for how a kill happened (weapon id, HE, or bomb). */
+function causeLabel(cause: DeathCause): string {
+  if (cause === 'he') return 'HE';
+  if (cause === 'bomb') return 'BOMB';
+  return cause.toUpperCase();
+}
 
 interface RenderSnapshot {
   x: number;
@@ -773,11 +780,14 @@ export class GameScene extends Phaser.Scene implements HudSource {
         case 'kill': {
           const killerTeam = this.state.players[ev.killerId]?.team;
           const color = killerTeam ? FACTION_CSS[killerTeam] : BOMB_CSS;
-          this.ui.addKillFeedLine(
-            `${this.names[ev.killerId] ?? ev.killerId} ✕ ${this.names[ev.victimId] ?? ev.victimId}`,
-            color,
-            ev.victimId === this.humanId,
-          );
+          const killer = this.names[ev.killerId] ?? ev.killerId;
+          const victim = this.names[ev.victimId] ?? ev.victimId;
+          // Suicide (own HE) reads as "victim ✕ [HE]" with no attacker name.
+          const line =
+            ev.killerId === ev.victimId
+              ? `${victim} ✕ [${causeLabel(ev.cause)}]`
+              : `${killer} [${causeLabel(ev.cause)}] ✕ ${victim}`;
+          this.ui.addKillFeedLine(line, color, ev.victimId === this.humanId);
           break;
         }
         case 'bomb_dropped':
