@@ -198,14 +198,14 @@ Input devices → InputCommand → core/simulation.applyInput() → GameState
 
 - [x] Monorepo restructure: went with the simpler option — `server/` imports `src/core` + `src/match` via relative paths, runs under `node --experimental-strip-types` (no build step)
 - [x] Colyseus room (`server/MatchRoom.ts`): fixed-tick loop (same `TICK_RATE`), runs `core/simulation` + `match/MatchState` as the source of truth
-- [x] Clients send `InputCommand`s (with client tick numbers); server buffers per-player queues and applies them (one per tick, one-shot buttons never repeated), broadcasts full-state snapshots at `SNAPSHOT_RATE` (15/s)
+- [x] Clients send `InputCommand`s (with client tick numbers); server buffers per-player queues and applies them (one per tick, one-shot buttons never repeated), broadcasts full-state snapshots at `SNAPSHOT_RATE` (15/s at the time; raised to 30/s in Phase 9.5 Workstream B)
 - [x] Naive first pass: `OnlineGameScene` (subclass of GameScene — fog/effects/audio/HUD reused) renders raw snapshots (it will feel laggy — that's expected, it proves the pipe works)
 
 ### 9b. Netcode quality
 
 - [x] **Client-side prediction:** client runs the same simulation locally for _its own_ player immediately on input (movement + aim only — firing/reload/switches stay server-authoritative so effects never double)
 - [x] **Server reconciliation:** snapshots include last-processed input tick (`acks`); client rewinds to server state and replays unacknowledged inputs (`OnlineGameScene.reconcile`)
-- [x] **Entity interpolation:** remote players + grenades render `INTERP_DELAY_MS` (100ms) in the past, lerping between the two surrounding snapshots
+- [x] **Entity interpolation:** remote players + grenades render `INTERP_DELAY_MS` (100ms then; 50ms since Workstream B) in the past, lerping between the two surrounding snapshots
 - [x] **Lag compensation for hits:** server keeps `LAG_COMP_MAX_REWIND_SEC` (1s) of position history; each input carries the client's interpolated `viewTick` and shots resolve against targets rewound to it
 - [ ] Reference reading: Gabriel Gambetta "Fast-Paced Multiplayer" parts 1–4; Valve's Source Multiplayer Networking article
 
@@ -436,17 +436,60 @@ protocol bump, no golden-hash change; offline play untouched):
       the aim line, `net predict` registers the shot, six semi-auto clicks consumed
       exactly six rounds (no double-fire from replay), and gun-mismatches +
       corrections both stayed at 0.0/s.
-- [ ] Playtest at ~50 ms: confirm the gun responds to clicks; watch the mismatch
-      counter stays near zero. **← the human feel test, still open**
+- [x] Playtest at ~50 ms: confirm the gun responds to clicks; watch the mismatch
+      counter stays near zero. — **done on the live deploy 2026-07-26:** "before
+      online play felt like every shot had a real delay to it, now it's much
+      smoother." The diagnosis held — unpredicted firing was indeed the dominant
+      contributor. **Workstream A is complete**; B is now unblocked and its numbers
+      can be chosen against this baseline.
+
+**Noted during A's playtest (not a regression):** `SERVER OVERLOADED` appeared
+occasionally when the server shares a machine with the browser (local testing).
+The tps measurement is real, but it had no hysteresis and is 2 s coarse, and
+`MAX_TICK_DELTA_MS` drops rather than makes up ticks after a >250 ms stall — so one
+CPU hitch read as ~2–4 s of banner. **Fixed in Workstream B** (hysteresis via
+`TPS_ALERT_HOLD_MS`, and `SNAPSHOT_LATE_MS` re-based off wall-clock instead of
+snapshot intervals) — see B's third item.
 
 **Workstream B — update-rate + interp tuning** (after A, measurement-driven; no
 protocol bump, no core change):
 
-- [ ] `SNAPSHOT_RATE` 15 → 30 (every 2nd server tick — server has the headroom).
-- [ ] `INTERP_DELAY_MS` 100 → ~50 (≥1.5 snapshot intervals of cushion at 30 Hz).
-- [ ] Read `net traffic` under load; if bandwidth bites, note delta/binary snapshot
-      encoding as a **follow-up** (don't build speculatively).
-- [ ] Re-test tracking smoothness + shot feel at ~50 and ~80 ms ping.
+- [x] `SNAPSHOT_RATE` 15 → 30 (every 2nd server tick — server has the headroom).
+- [x] `INTERP_DELAY_MS` 100 → ~50 (≥1.5 snapshot intervals of cushion at 30 Hz). —
+      50 exactly (1.5 × 33.3 ms).
+- [x] **Indicator thresholds re-based** (they were expressed in snapshot intervals,
+      so doubling the rate would have made both twitchy): `SNAPSHOT_LATE_MS` is now
+      `max(200, 3 intervals)` — a wall-clock floor, because faster snapshots make a
+      gap cheaper, not more alarming — and SERVER OVERLOADED needs the low-TPS
+      condition to hold `TPS_ALERT_HOLD_MS` (1.5 × `PERF_WINDOW_SEC`) before it
+      raises, so one CPU hitch can't accuse the server. Clears on the first healthy
+      snapshot. This is the fix for the banner noticed during A's playtest.
+- [x] Read `net traffic` under load; if bandwidth bites, note delta/binary snapshot
+      encoding as a **follow-up** (don't build speculatively). — **measured
+      2026-07-26** with a render-free 2-client Node probe against a local server,
+      plus the in-browser net_graph:
+      - Delivery is now **exactly 30.0/s with gap p95 34 ms** (target 33.3). Compare
+        the 15 Hz baseline: 15.0/s with gap p95 81 ms vs 66.7 target — so the
+        jitter improved proportionally, not just the rate.
+      - Snapshots are **4.0 KB** each (full-state JSON, 10-player roster), i.e.
+        **~117 KB/s per client down**, up from ~58. Server outbound scales linearly
+        with humans: 2 clients = 234 KB/s, so a **full 10-human room ≈ 1.17 MB/s
+        (~9.2 Mbit/s)**. Client uplink is unchanged and trivial (~7.6 KB/s).
+      - Server cost is unaffected: **tick 0.09–0.22 ms avg, 0.6 ms max, 60.0 tps**
+        with 2 clients + bots. The rate rise is free on CPU, paid in bytes.
+      - **Verdict: does not bite yet at realistic room counts, but it's the next
+        scaling wall** — a free-tier instance hosting a couple of full rooms is into
+        tens of Mbit/s. Follow-up (do NOT build speculatively): delta-encode
+        snapshots (send only changed fields against the client's last ack) and/or a
+        binary encoding; either is a protocol bump. Revisit when rooms actually fill
+        or the host starts charging for egress.
+- [ ] Re-test tracking smoothness + shot feel at ~50 and ~80 ms ping. **← human feel
+      test, still open.** Headless locally is healthy (buffer sits at ~49 ms, i.e.
+      one interp delay of cushion as intended) but says nothing about real jitter.
+      The number to watch on the deploy is **`starved/s`** on the net_graph: 50 ms is
+      only 1.5 intervals of cushion, so if the buffer starves often at ~80 ms ping,
+      raise `INTERP_DELAY_MS` back toward 66 (2 intervals) rather than dropping the
+      snapshot rate — the rate is what fixed target tracking.
 
 Reference reading for this specific problem (see Key References): Gambetta parts
 **1–2** (client-side prediction + server reconciliation — the same idea extended to

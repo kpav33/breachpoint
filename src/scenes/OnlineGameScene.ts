@@ -14,6 +14,7 @@
 import type { Room } from 'colyseus.js';
 import {
   INTERP_DELAY_MS,
+  PERF_WINDOW_SEC,
   PING_INTERVAL_MS,
   PLAYER_RADIUS,
   SNAPSHOT_RATE,
@@ -72,6 +73,24 @@ const RTT_SAMPLES = 8;
 /** A reconciliation correction counts when the resimulated position differs
  * from the prediction by more than this, px. */
 const CORRECTION_EPSILON_PX = 1;
+/**
+ * Newest snapshot older than this raises CONNECTION PROBLEM. Kept as a wall-clock
+ * floor rather than a pure multiple of the snapshot interval: the old "3 intervals"
+ * rule meant 200 ms at 15 Hz but would have tightened to 100 ms when Workstream B
+ * doubled the rate, flapping the warning on ordinary jitter. Faster snapshots make
+ * a gap *cheaper*, not more alarming, so the tolerance stays put.
+ */
+const SNAPSHOT_LATE_MS = Math.max(200, (1000 / SNAPSHOT_RATE) * 3);
+/**
+ * How long achieved TPS must stay low before SERVER OVERLOADED shows, ms. The
+ * server rolls `perf` only every PERF_WINDOW_SEC and the client keeps displaying
+ * the last value it received, so a single hitch already reads as ~2 s of banner.
+ * Requiring the condition to outlive one window means a second consecutive bad
+ * window has to arrive — one GC pause or a browser stealing the CPU on a local
+ * server no longer accuses the server of being overloaded. Clears on the first
+ * healthy snapshot.
+ */
+const TPS_ALERT_HOLD_MS = PERF_WINDOW_SEC * 1000 * 1.5;
 
 /** Drop timestamps that fell out of the sliding window (arrays stay sorted). */
 function prune(times: number[], cutoffMs: number): void {
@@ -160,7 +179,7 @@ export class OnlineGameScene extends GameScene {
   private room: Room | null = null;
   /** Snapshots received since the last frame, stamped at arrival. */
   private pending: { atMs: number; snap: Snapshot }[] = [];
-  /** Recent snapshot positions for entity interpolation (~1s). */
+  /** Recent snapshot positions for entity interpolation (40 = ~1.3s at 30 Hz). */
   private snapBuffer: BufferEntry[] = [];
   /** Inputs sent but not yet acknowledged by a snapshot. */
   private pendingInputs: InputCommand[] = [];
@@ -193,6 +212,8 @@ export class OnlineGameScene extends GameScene {
   private pings: Record<string, number> = {};
   /** Arrival time of the newest snapshot (connection-problem detection). */
   private lastSnapAt = 0;
+  /** When achieved server TPS first went low, or null while it's healthy. */
+  private lowTpsSince: number | null = null;
   /** Snapshot arrival timestamps (rate + inter-arrival health). */
   private snapArrivals: number[] = [];
   /** Timestamps of frames where the interp buffer ran dry (extrapolation hold). */
@@ -235,6 +256,7 @@ export class OnlineGameScene extends GameScene {
     this.serverPerf = null;
     this.pings = {};
     this.lastSnapAt = 0;
+    this.lowTpsSince = null;
     this.snapArrivals = [];
     this.interpStarves = [];
     this.corrections = [];
@@ -728,16 +750,19 @@ export class OnlineGameScene extends GameScene {
 
   /** Player-facing telemetry (Phase 9.5): HUD ping + connection warnings. */
   protected buildNet(): HudNet | null {
-    let problem: string | null = null;
+    const now = performance.now();
     const p = this.serverPerf;
-    if (p && p.tps > 0 && p.tps < TICK_RATE * 0.9) {
-      // Achieved TPS well under target: the server is overloaded — tell the
-      // player it's not their connection.
+    // Achieved TPS well under target: the server is overloaded — tell the
+    // player it's not their connection. Held for TPS_ALERT_HOLD_MS first so a
+    // one-off hitch doesn't raise it.
+    const lowTps = p !== null && p.tps > 0 && p.tps < TICK_RATE * 0.9;
+    if (!lowTps) this.lowTpsSince = null;
+    else this.lowTpsSince ??= now;
+
+    let problem: string | null = null;
+    if (this.lowTpsSince !== null && now - this.lowTpsSince >= TPS_ALERT_HOLD_MS) {
       problem = 'SERVER OVERLOADED';
-    } else if (
-      this.lastSnapAt > 0 &&
-      performance.now() - this.lastSnapAt > (1000 / SNAPSHOT_RATE) * 3
-    ) {
+    } else if (this.lastSnapAt > 0 && now - this.lastSnapAt > SNAPSHOT_LATE_MS) {
       problem = 'CONNECTION PROBLEM';
     }
     return { rttMs: this.rttAvg(), problem };

@@ -156,8 +156,14 @@ export const BOMB_DAMAGE = 500;
 export const BOMB_RADIUS_PX = 550;
 
 // --- Networking (Phase 9) --------------------------------------------------
-/** Server → client full-state snapshot broadcast rate, Hz. */
-export const SNAPSHOT_RATE = 15;
+/**
+ * Server → client full-state snapshot broadcast rate, Hz. Every 2nd server
+ * tick at TICK_RATE 60. Raised from 15 in Phase 9.5 Workstream B: at 15 Hz
+ * enemy positions only updated 15×/s, so tracking a target meant following
+ * samples 66 ms apart. The server has the headroom (tick ~0.2 ms avg); the
+ * cost is bandwidth, since snapshots are full-state JSON.
+ */
+export const SNAPSHOT_RATE = 30;
 /** Default port the Colyseus server listens on (dev). */
 export const DEFAULT_SERVER_PORT = 2567;
 /** Max buffered InputCommands per player; the oldest are dropped beyond this. */
@@ -171,8 +177,15 @@ export const INPUT_QUEUE_MAX = 8;
 export const INPUT_HOLD_MAX_SEC = 0.3;
 /** Max players in an online room. */
 export const MAX_ONLINE_PLAYERS = 10;
-/** Remote players render this far in the past, lerped between snapshots, ms. */
-export const INTERP_DELAY_MS = 100;
+/**
+ * Remote players render this far in the past, lerped between snapshots, ms.
+ * Must stay ≥1.5 snapshot intervals so the interpolator has two samples to
+ * lerp between and one late packet doesn't starve it (50 ms = 1.5 × 33.3 ms at
+ * SNAPSHOT_RATE 30). Halved from 100 in Workstream B: this is how stale your
+ * aim is, and lag compensation makes hits *fair* at any value but cannot make
+ * aiming at a stale target *feel* good.
+ */
+export const INTERP_DELAY_MS = 50;
 /** How much position history the server keeps for lag-compensated hits, sec. */
 export const LAG_COMP_MAX_REWIND_SEC = 1;
 /** How often the client sends an RTT probe (MSG_PING), ms. */
