@@ -60,7 +60,14 @@ export interface WeaponDef {
   magSize: number;
   reserveSize: number;
   reloadTime: number;
-  /** Spread while standing still, degrees (half-angle of the cone). */
+  /**
+   * Spread while standing still, degrees (half-angle of the cone). This is an
+   * always-applied floor, so it is **0 for every aimed weapon**: a stationary,
+   * unbloomed first shot must land exactly on the crosshair (CS-style
+   * first-shot accuracy — precise aim has to be rewarded). Non-zero only where
+   * scatter is the point (shotgun) or as a token amount (sniper). Inaccuracy
+   * comes from spreadMoveDeg (moving) and bloom (firing too fast) instead.
+   */
   spreadBaseDeg: number;
   /** Extra spread at full movement speed, degrees. */
   spreadMoveDeg: number;

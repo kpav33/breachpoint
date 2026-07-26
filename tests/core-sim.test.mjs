@@ -102,6 +102,54 @@ function close(a, b, eps = 1e-9) {
   );
 }
 
+// --- First-shot accuracy ------------------------------------------------------
+// A stationary, unbloomed aimed weapon must put its first shot exactly on the
+// crosshair (CS-style). Guarding this behaviorally, not just as a config value:
+// at long range even a fraction of a degree misses a PLAYER_RADIUS target.
+{
+  for (const id of ['pistol', 'deagle', 'smg', 'rifle']) {
+    check(WEAPONS[id].spreadBaseDeg === 0, `${id}: no base spread (first shot is pinpoint)`);
+  }
+
+  const grid = {
+    tileSize: 32,
+    width: 60,
+    height: 30,
+    cells: Array.from({ length: 30 }, () => new Array(60).fill(0)),
+  };
+  const map = { grid, segments: [] }; // open field: nothing blocks the ray
+  const DT = 1 / TICK_RATE;
+  const RANGE_PX = 1200; // far enough that old base spread (2°) missed often
+
+  // Across seeds, so this proves determinism-of-aim rather than a lucky roll.
+  let hits = 0;
+  const SEEDS = 25;
+  for (let seed = 1; seed <= SEEDS; seed++) {
+    const s = createGameState(seed);
+    s.players.shooter = createPlayer('shooter', 'T', 200, 500);
+    s.players.target = createPlayer('target', 'CT', 200 + RANGE_PX, 500);
+    givePrimary(s.players.shooter, 'rifle');
+    s.players.shooter.activeSlot = 2;
+    // Stationary, aimed dead at the target, single trigger pull.
+    applyInput(s, 'shooter', { tick: 0, moveX: 0, moveY: 0, aimAngle: 0, buttons: Buttons.Shoot }, map, DT);
+    if (s.events.some((e) => e.type === 'shot' && e.hitPlayerId === 'target')) hits++;
+  }
+  check(hits === SEEDS, `stationary first shot always hits at ${RANGE_PX}px (${hits}/${SEEDS})`);
+
+  // The counterpart: moving still spoils accuracy, so the tradeoff survives.
+  let movingHits = 0;
+  for (let seed = 1; seed <= SEEDS; seed++) {
+    const s = createGameState(seed);
+    s.players.shooter = createPlayer('shooter', 'T', 200, 500);
+    s.players.target = createPlayer('target', 'CT', 200 + RANGE_PX, 500);
+    givePrimary(s.players.shooter, 'rifle');
+    s.players.shooter.activeSlot = 2;
+    applyInput(s, 'shooter', { tick: 0, moveX: 0, moveY: 1, aimAngle: 0, buttons: Buttons.Shoot }, map, DT);
+    if (s.events.some((e) => e.type === 'shot' && e.hitPlayerId === 'target')) movingHits++;
+  }
+  check(movingHits < SEEDS, `moving still spoils long-range accuracy (${movingHits}/${SEEDS} hit)`);
+}
+
 // --- Variable throw strength (hold-to-charge) --------------------------------
 {
   const dt = 1 / TICK_RATE;

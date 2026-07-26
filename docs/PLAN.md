@@ -248,12 +248,18 @@ change), and several add small `PlayerState` fields → expect **one
 `PROTOCOL_VERSION` bump** for the batch. Exact field/wire details decided at
 implementation.
 
-- [ ] **First-shot accuracy (laser-perfect).** Do this one first — trivial, unblocks
-      the "aiming matters" feel. `spreadBaseDeg` → **0** for rifle, smg, pistol,
-      deagle so a stationary, unbloomed first shot is dead-center. Keep shotgun (4°)
-      and sniper (0.1°). Movement penalty (`spreadMoveDeg`) and per-shot `bloom*`
-      unchanged → tap for precision, spray/movement drift. Bots add their own
-      `aimErrorDeg` on top, so the lethality rebalance is minor (quick sanity-check).
+- [x] **First-shot accuracy (laser-perfect)** — **done (2026-07).** `spreadBaseDeg`
+      → **0** for rifle, smg, pistol, deagle; shotgun (4°) and sniper (0.1°) kept.
+      Movement penalty and bloom untouched → tap for precision, spray/movement
+      drift. Locked in behaviorally by a new test in `tests/core-sim.test.mjs`
+      (stationary first shot hits a target at 1200 px on **25/25** seeds; the same
+      shot while moving hits **0/25**) — a config-value assertion alone wouldn't
+      catch a regression in how spread is applied. **The golden replay hash did NOT
+      change**, contrary to this plan's earlier prediction: `nextRand` is called once
+      per pellet regardless of spread *magnitude*, so `rngState` is identical, and
+      the replay's single player-hit (1 of 40 shots) was well-centered enough to land
+      either way. No protocol bump. The `WeaponDef.spreadBaseDeg` doc comment in
+      `core/types.ts` now records why 0 is the intended value for aimed weapons.
 - [ ] **Semi-auto fire modes.** Add `auto: boolean` to `WeaponDef`; **true only for
       smg + rifle**. Everything else (pistol, deagle, sniper, shotgun, knife) fires
       **one shot per trigger press** — holding the button no longer auto-sprays them
@@ -422,12 +428,15 @@ working; the fixes above live in parts 1–2 plus the update-rate discussion.
 
 ## Starter Weapon Table (tune later)
 
+Spread° is the **base** (standing-still) spread — 0 for aimed weapons since the
+first-shot-accuracy pass; inaccuracy now comes from movement + bloom instead.
+
 | Weapon | Dmg | RPM | Mag | Reload | Spread° | Price | Speed× |
 | ------ | --- | --- | --- | ------ | ------- | ----- | ------ |
 | Knife  | 35  | 120 | —   | —      | —       | free  | 1.10   |
-| Pistol | 26  | 300 | 12  | 1.8s   | 1.5     | free  | 1.00   |
-| SMG    | 20  | 750 | 30  | 2.2s   | 3.0     | $1200 | 1.00   |
-| Rifle  | 33  | 600 | 30  | 2.5s   | 2.0     | $2700 | 0.93   |
+| Pistol | 26  | 300 | 12  | 1.8s   | 0       | free  | 1.00   |
+| SMG    | 20  | 750 | 30  | 2.2s   | 0       | $1200 | 1.00   |
+| Rifle  | 33  | 600 | 30  | 2.5s   | 0       | $2700 | 0.93   |
 | Sniper | 110 | 40  | 10  | 3.0s   | 0.1     | $4750 | 0.85   |
 
 ## Key References
