@@ -8,15 +8,24 @@ import { isWall, resolveCircleGrid } from '../src/core/collision.ts';
 import { castRay, raySegmentDist } from '../src/core/raycast.ts';
 import { currentSpreadDeg, damageAtRange, givePrimary } from '../src/core/weapons.ts';
 import {
+  ACCURACY_RECOVERY_SEC,
+  ARMOR_MAX,
   GRENADE_CHARGE_GRACE_SEC,
   GRENADE_CHARGE_TIME_SEC,
   GRENADE_THROW_SPEED,
   GRENADE_THROW_SPEED_MIN,
-  MOVE_SPEED,
+  PLAYER_MAX_HP,
+  TAG_RECOVERY_SEC,
   TICK_RATE,
   WEAPONS,
 } from '../src/core/config.ts';
-import { applyInput, createGameState, createPlayer, stepWorld } from '../src/core/simulation.ts';
+import {
+  applyInput,
+  createGameState,
+  createPlayer,
+  damagePlayer,
+  stepWorld,
+} from '../src/core/simulation.ts';
 import { parseTiledMap } from '../src/core/map.ts';
 
 let failures = 0;
@@ -95,7 +104,9 @@ function close(a, b, eps = 1e-9) {
   state.players.p.activeSlot = 2;
   const standing = currentSpreadDeg(state.players.p);
   check(close(standing, rifle.spreadBaseDeg), 'standing spread = base');
-  state.players.p.vel = { x: MOVE_SPEED, y: 0 };
+  // Spread reads the smoothed movement factor, not the live velocity, so that
+  // stopping doesn't reset accuracy in the same tick (see ACCURACY_RECOVERY_SEC).
+  state.players.p.moveSpread = 1;
   check(
     close(currentSpreadDeg(state.players.p), rifle.spreadBaseDeg + rifle.spreadMoveDeg),
     'full-speed spread adds the movement penalty',
@@ -148,6 +159,103 @@ function close(a, b, eps = 1e-9) {
     if (s.events.some((e) => e.type === 'shot' && e.hitPlayerId === 'target')) movingHits++;
   }
   check(movingHits < SEEDS, `moving still spoils long-range accuracy (${movingHits}/${SEEDS} hit)`);
+}
+
+// --- Accuracy recovery (settle time) + tagging --------------------------------
+{
+  const DT = 1 / TICK_RATE;
+  const grid = {
+    tileSize: 32,
+    width: 60,
+    height: 30,
+    cells: Array.from({ length: 30 }, () => new Array(60).fill(0)),
+  };
+  const map = { grid, segments: [] };
+  const cmd = (moveX, moveY, buttons = 0) => ({ tick: 0, moveX, moveY, aimAngle: 0, buttons });
+
+  // Running spoils accuracy, and it does NOT come back the tick you let go.
+  {
+    const s = createGameState(1);
+    s.players.p = createPlayer('p', 'T', 300, 500);
+    givePrimary(s.players.p, 'rifle');
+    s.players.p.activeSlot = 2;
+    const me = s.players.p;
+
+    for (let i = 0; i < 30; i++) applyInput(s, 'p', cmd(1, 0), map, DT);
+    // Full speed for *this* weapon: the rifle's speedMult caps it below 1.
+    const running = me.moveSpread;
+    check(close(running, WEAPONS.rifle.speedMult), 'running pins movement spread at run speed');
+
+    applyInput(s, 'p', cmd(0, 0), map, DT); // released, but only just
+    check(me.vel.x === 0, 'velocity stops immediately');
+    check(
+      me.moveSpread >= running - DT / ACCURACY_RECOVERY_SEC - 1e-9,
+      'accuracy decays by one step, not instantly, when you stop',
+    );
+    check(me.moveSpread > 0.5, 'accuracy is still badly spoiled right after stopping');
+
+    // ...it recovers over ACCURACY_RECOVERY_SEC.
+    const ticks = Math.ceil(ACCURACY_RECOVERY_SEC / DT);
+    for (let i = 0; i < ticks; i++) applyInput(s, 'p', cmd(0, 0), map, DT);
+    check(close(me.moveSpread, 0), `accuracy settles after ${ACCURACY_RECOVERY_SEC}s`);
+    check(close(currentSpreadDeg(me), WEAPONS.rifle.spreadBaseDeg), 'settled = pinpoint again');
+  }
+
+  // Tagging: a bullet slows the victim, and the slow decays.
+  {
+    const s = createGameState(1);
+    s.players.shooter = createPlayer('shooter', 'T', 300, 500);
+    s.players.victim = createPlayer('victim', 'CT', 700, 500);
+    givePrimary(s.players.shooter, 'rifle');
+    s.players.shooter.activeSlot = 2;
+    const victim = s.players.victim;
+
+    // Victim runs untagged for a tick to establish a baseline speed.
+    applyInput(s, 'victim', cmd(0, 1), map, DT);
+    const cleanSpeed = Math.hypot(victim.vel.x, victim.vel.y);
+    check(victim.tagged === 0, 'victim starts untagged');
+
+    applyInput(s, 'shooter', cmd(0, 0, Buttons.Shoot), map, DT);
+    check(victim.hp < PLAYER_MAX_HP, 'the shot connected');
+    check(victim.tagged > 0, 'taking a bullet tags the victim');
+
+    applyInput(s, 'victim', cmd(0, 1), map, DT);
+    const taggedSpeed = Math.hypot(victim.vel.x, victim.vel.y);
+    check(taggedSpeed < cleanSpeed, `tagged victim moves slower (${taggedSpeed.toFixed(0)} < ${cleanSpeed.toFixed(0)})`);
+
+    // The slow bleeds off; TAG_RECOVERY_SEC is the full 1→0 time.
+    const ticks = Math.ceil(TAG_RECOVERY_SEC / DT);
+    for (let i = 0; i < ticks; i++) applyInput(s, 'victim', cmd(0, 1), map, DT);
+    check(victim.tagged === 0, `tag wears off within ${TAG_RECOVERY_SEC}s`);
+    check(
+      close(Math.hypot(victim.vel.x, victim.vel.y), cleanSpeed),
+      'speed returns to normal once recovered',
+    );
+  }
+
+  // Armor absorbs part of the hit, so it blunts the stagger as well.
+  {
+    const tagAfterShot = (armor) => {
+      const s = createGameState(1);
+      s.players.shooter = createPlayer('shooter', 'T', 300, 500);
+      s.players.victim = createPlayer('victim', 'CT', 700, 500);
+      givePrimary(s.players.shooter, 'rifle');
+      s.players.shooter.activeSlot = 2;
+      s.players.victim.armor = armor;
+      applyInput(s, 'shooter', cmd(0, 0, Buttons.Shoot), map, DT);
+      return s.players.victim.tagged;
+    };
+    check(tagAfterShot(ARMOR_MAX) < tagAfterShot(0), 'armor reduces tagging as well as damage');
+  }
+
+  // Explosions deliberately do NOT tag (gunfire only).
+  {
+    const s = createGameState(1);
+    s.players.p = createPlayer('p', 'T', 300, 500);
+    damagePlayer(s, 'p', 40, 'x', 'he');
+    check(s.players.p.hp < PLAYER_MAX_HP, 'HE damage applied');
+    check(s.players.p.tagged === 0, 'explosion damage does not tag');
+  }
 }
 
 // --- Fire modes, auto-reload, shell-by-shell reload ---------------------------
@@ -335,11 +443,11 @@ function close(a, b, eps = 1e-9) {
   const h1 = createHash('sha256').update(JSON.stringify(run())).digest('hex').slice(0, 16);
   const h2 = createHash('sha256').update(JSON.stringify(run())).digest('hex').slice(0, 16);
   check(h1 === h2, 'simulation is deterministic (same inputs → same state)');
-  // Bumped by the fire-control pass: auto-reload now refills the rifle mid-run
-  // (40 shots through a 30-round mag), and the pistol became semi-automatic, so
-  // the replay's held-trigger bursts fire once instead of emptying the mag.
-  // Both are intended behavior changes.
-  const GOLDEN = 'c09aea069df80501';
+  // Bumped by the movement/combat-coupling pass: spread now follows a smoothed
+  // movement factor that lags stopping (ACCURACY_RECOVERY_SEC), and bullet hits
+  // tag the victim, slowing them — so both the shots and the paths differ.
+  // Intended behavior changes.
+  const GOLDEN = 'f6441eae02e790ca';
   check(
     h1 === GOLDEN,
     `replay regression hash unchanged (got ${h1}) — a mismatch means sim behavior changed; update GOLDEN only if that was intentional`,

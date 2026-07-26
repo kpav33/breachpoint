@@ -244,9 +244,10 @@ most complex part — this pass lands first.
 
 Cross-cutting costs: these are `core/` changes, so they affect **online and offline
 identically**, bump the **golden replay hash**, and several add small `PlayerState`
-fields → a `PROTOCOL_VERSION` bump. Status: the fire-control batch landed as
-**version 7** (`triggerHeld`), golden hash `c09aea069df80501`. The remaining two
-items add one more field each and will need another bump when they land.
+fields → a `PROTOCOL_VERSION` bump. Status: **the pass is complete.** Fire control
+landed as version 7 (`triggerHeld`, hash `c09aea069df80501`); movement/combat
+coupling as **version 8** (`moveSpread`, `tagged`, hash `f6441eae02e790ca`).
+Next up is the netcode "Shooting feel" work below.
 
 - [x] **First-shot accuracy (laser-perfect)** — **done (2026-07).** `spreadBaseDeg`
       → **0** for rifle, smg, pistol, deagle; shotgun (4°) and sniper (0.1°) kept.
@@ -274,14 +275,25 @@ items add one more field each and will need another bump when they land.
       pistol rounds). Bots now press only on ticks where the gun can actually fire,
       so the sim sees a release between shots: measured 8–9 pistol shots/3 s for
       normal/hard vs ~4 when held. Pinned by a new `tests/bot-fire.test.mjs`.
-- [ ] **Accuracy recovery after stopping (counter-strafe analogue).** Today accuracy
-      is pinpoint one tick after velocity hits 0. Add a short, tunable recovery ramp
-      so you must *settle* briefly after moving before the move-penalty fully clears
-      — rewards stopping before you shoot, like CS. Keep it short so it doesn't feel
-      sluggish.
-- [ ] **Tagging (getting shot slows you).** On taking a bullet, apply a decaying
-      movement-speed penalty (a "tagged" factor that recovers over a fraction of a
-      second). Shapes peek/hold duels the CS way. Adds a small `PlayerState` timer.
+- [x] **Accuracy recovery after stopping (counter-strafe analogue)** — **done
+      (2026-07).** `currentSpreadDeg` now reads `PlayerState.moveSpread` (0..1)
+      instead of live velocity: it snaps up the instant you move and decays linearly
+      over `ACCURACY_RECOVERY_SEC` (0.25 s) once you stop, so releasing the key and
+      firing in the same tick no longer gives a pinpoint shot. Updated in `move()`
+      after velocity is set. Note the target is still *actual* speed over
+      `MOVE_SPEED` (unchanged), so anything that slows you — heavy weapon, walking,
+      being tagged — also steadies your aim, as in CS.
+- [x] **Tagging (getting shot slows you)** — **done (2026-07).** `PlayerState.tagged`
+      (0..1) rises on bullet hits by `hpLost * TAG_PER_DAMAGE` and bleeds off over
+      `TAG_RECOVERY_SEC` (0.5 s); movement is scaled by `1 - tagged * TAG_MAX_SLOW`
+      (up to 40 % slower). One rifle body shot → ~74 % speed. Two deliberate design
+      calls: it is **gunfire-only** (knife included, but *not* HE/bomb — explosions
+      already control space via damage, and a slow on top would make utility
+      oppressive), and it scales by **health actually lost**, so **armor blunts the
+      stagger as well as the damage**. Bot duel sanity check after the pass: kills
+      still land in 5/5 duels, ~1 s (hard) / ~1.8 s (normal) / ~7 s (easy).
+      Debug overlay gained `spread` (now showing the move factor) and `tagged` lines,
+      per the invisible-state convention.
 - [x] **Shotgun shell-by-shell reload** — **done (2026-07).** Optional
       `WeaponDef.shellReload`; for such weapons `reloadTime` means **per shell**, so
       the shotgun went 3.0 s/mag → 0.5 s/shell (still 3.0 s from empty, but

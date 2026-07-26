@@ -22,6 +22,7 @@ import {
   PLAYER_RADIUS,
   ROUND_TIME_SEC,
   START_MONEY,
+  TAG_MAX_SLOW,
   TEAM_SIZE,
   TICK_RATE,
   WEAPONS,
@@ -1038,7 +1039,16 @@ export class GameScene extends Phaser.Scene implements HudSource {
     );
     this.debug.setLine('pos', `${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}`);
     this.debug.setLine('weapon', activeWeapon(player).id);
-    this.debug.setLine('spread', `${currentSpreadDeg(player).toFixed(2)}°`);
+    this.debug.setLine(
+      'spread',
+      `${currentSpreadDeg(player).toFixed(2)}° (move ${player.moveSpread.toFixed(2)})`,
+    );
+    this.debug.setLine(
+      'tagged',
+      player.tagged > 0
+        ? `${player.tagged.toFixed(2)} → ${((1 - player.tagged * TAG_MAX_SLOW) * 100).toFixed(0)}% speed`
+        : 'no',
+    );
     for (const [id, bot] of Object.entries(this.bots)) {
       const hp = this.state.players[id].hp;
       const nade = bot.debugInfo.throwTarget ? ' ⟶nade' : '';

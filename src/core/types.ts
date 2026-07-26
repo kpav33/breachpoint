@@ -128,6 +128,18 @@ export interface PlayerState {
   /** Accumulated spread bloom from sustained fire, degrees. */
   bloomDeg: number;
   /**
+   * Smoothed movement-inaccuracy factor, 0..1. Rises instantly with speed but
+   * decays over ACCURACY_RECOVERY_SEC once you stop, which is what forces you
+   * to settle before shooting. Read by currentSpreadDeg instead of the raw
+   * velocity, which would snap to zero the tick the movement key is released.
+   */
+  moveSpread: number;
+  /**
+   * Tag factor, 0..1: how much recent damage is slowing this player. Bumped by
+   * incoming bullets, bleeds off over TAG_RECOVERY_SEC.
+   */
+  tagged: number;
+  /**
    * Was the fire button down last tick? Semi-automatic weapons need a fresh
    * press per shot, so the simulation has to see the trigger *edge* — holding
    * the button must not keep firing them.
