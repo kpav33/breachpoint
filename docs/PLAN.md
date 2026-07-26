@@ -243,10 +243,10 @@ The netcode "Shooting feel" work below is deliberately sequenced **last**, as th
 most complex part — this pass lands first.
 
 Cross-cutting costs: these are `core/` changes, so they affect **online and offline
-identically**, will bump the **golden replay hash** once (intentional sim-behavior
-change), and several add small `PlayerState` fields → expect **one
-`PROTOCOL_VERSION` bump** for the batch. Exact field/wire details decided at
-implementation.
+identically**, bump the **golden replay hash**, and several add small `PlayerState`
+fields → a `PROTOCOL_VERSION` bump. Status: the fire-control batch landed as
+**version 7** (`triggerHeld`), golden hash `c09aea069df80501`. The remaining two
+items add one more field each and will need another bump when they land.
 
 - [x] **First-shot accuracy (laser-perfect)** — **done (2026-07).** `spreadBaseDeg`
       → **0** for rifle, smg, pistol, deagle; shotgun (4°) and sniper (0.1°) kept.
@@ -260,13 +260,20 @@ implementation.
       the replay's single player-hit (1 of 40 shots) was well-centered enough to land
       either way. No protocol bump. The `WeaponDef.spreadBaseDeg` doc comment in
       `core/types.ts` now records why 0 is the intended value for aimed weapons.
-- [ ] **Semi-auto fire modes.** Add `auto: boolean` to `WeaponDef`; **true only for
-      smg + rifle**. Everything else (pistol, deagle, sniper, shotgun, knife) fires
-      **one shot per trigger press** — holding the button no longer auto-sprays them
-      at RPM (today `tryFire` gates on `fireCooldown` only, so held-mouse sprays
-      everything). Needs trigger-edge detection in the sim (track the previous
-      trigger state per player); coordinate with netcode Workstream A, which also
-      touches the fire path.
+- [x] **Semi-auto fire modes** — **done (2026-07).** `WeaponDef.auto` (required, so
+      every weapon declares it); **true for smg, rifle and knife**, false for pistol,
+      deagle, sniper, shotgun. *Deviation from this plan's earlier text, which listed
+      the knife as semi:* CS repeats knife slashes while the button is held, and
+      making it semi would only add click-spam to a fallback weapon. Edge detection
+      is `PlayerState.triggerHeld`, recorded in `applyInput` **after** `tryFire` so
+      the fire check sees the previous tick. No server change needed: `repeatCommand`
+      keeps Shoot held on stale commands, and the edge rule makes that a no-op for
+      semi-auto (auto weapons still ride out packet loss as before).
+      **Bots needed a matching fix** — `fireControl` held the trigger for the whole
+      burst, which under the edge rule is one shot per burst (a severe silent nerf on
+      pistol rounds). Bots now press only on ticks where the gun can actually fire,
+      so the sim sees a release between shots: measured 8–9 pistol shots/3 s for
+      normal/hard vs ~4 when held. Pinned by a new `tests/bot-fire.test.mjs`.
 - [ ] **Accuracy recovery after stopping (counter-strafe analogue).** Today accuracy
       is pinpoint one tick after velocity hits 0. Add a short, tunable recovery ramp
       so you must *settle* briefly after moving before the move-penalty fully clears
@@ -275,12 +282,20 @@ implementation.
 - [ ] **Tagging (getting shot slows you).** On taking a bullet, apply a decaying
       movement-speed penalty (a "tagged" factor that recovers over a fraction of a
       second). Shapes peek/hold duels the CS way. Adds a small `PlayerState` timer.
-- [ ] **Shotgun shell-by-shell reload.** Reload one shell at a time, cancelable
-      mid-reload to fire, instead of the current whole-mag refill after `reloadTime`
-      (`tickTimers`). CS pump-shotgun feel.
-- [ ] **Auto-reload on empty mag.** When the active weapon's mag hits 0 and reserve
-      > 0, start the reload automatically — no manual R needed (manual R still works
-      early). Simple: call the existing `tryStartReload` when `magAmmo` reaches 0.
+- [x] **Shotgun shell-by-shell reload** — **done (2026-07).** Optional
+      `WeaponDef.shellReload`; for such weapons `reloadTime` means **per shell**, so
+      the shotgun went 3.0 s/mag → 0.5 s/shell (still 3.0 s from empty, but
+      interruptible after any shell). `tickTimers` loads one shell and re-arms the
+      timer until the mag is full or the reserve is dry; `tryFire` cancels an
+      in-progress shell reload and keeps the shells already loaded (magazine reloads
+      still must finish). HUD change: shell reloads keep showing the live ammo count
+      with a trailing "…" instead of `RELOADING…`, since watching shells tick up is
+      the whole point of the mechanic.
+- [x] **Auto-reload on empty mag** — **done (2026-07).** `autoReload` runs at the end
+      of `applyInput`: mag at 0 → `tryStartReload` (which already no-ops on a dry
+      reserve or an in-progress reload). Manual R still works early. Skipped while a
+      grenade is charged so a throw isn't interrupted. Side benefit: the HUD's
+      `ammoWarn` now means "genuinely out of ammo" rather than "press R".
 
 Recorded decisions (no code — so they aren't re-litigated):
 

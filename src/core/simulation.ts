@@ -73,6 +73,7 @@ export function createPlayer(
     fireCooldown: 0,
     reloadRemaining: 0,
     bloomDeg: 0,
+    triggerHeld: false,
     chargingGrenade: null,
     chargeTicks: 0,
   };
@@ -93,6 +94,7 @@ export function respawnPlayer(state: GameState, playerId: string, pos: Vec2): vo
   p.fireCooldown = 0;
   p.reloadRemaining = 0;
   p.bloomDeg = 0;
+  p.triggerHeld = false;
   p.chargingGrenade = null;
   p.chargeTicks = 0;
 }
@@ -153,7 +155,24 @@ export function applyInput(
   if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
   handleGrenadeCharge(state, p, cmd, dt);
   // Can't shoot while a grenade is charged and ready to throw.
-  if (cmd.buttons & Buttons.Shoot && p.chargingGrenade === null) tryFire(state, p, map);
+  const triggerDown = (cmd.buttons & Buttons.Shoot) !== 0;
+  if (triggerDown && p.chargingGrenade === null) tryFire(state, p, map);
+  // Recorded after firing so tryFire sees last tick's state: semi-automatic
+  // weapons fire only on the press edge, never while the button stays down.
+  p.triggerHeld = triggerDown;
+  autoReload(state, p);
+}
+
+/**
+ * An empty magazine reloads itself — once the mag runs dry there is nothing
+ * else a player could want, and making them press R is just a delay. Pressing
+ * R early still works. Skipped while a grenade is charged so a throw isn't
+ * interrupted.
+ */
+function autoReload(state: GameState, p: PlayerState): void {
+  if (p.chargingGrenade !== null) return;
+  if (p.slots[p.activeSlot].magAmmo > 0) return;
+  tryStartReload(state, p); // no-ops when the reserve is dry or already reloading
 }
 
 /** Which grenade a throw button asks for this tick (HE > flash > smoke), or null. */
@@ -414,9 +433,16 @@ function tickTimers(p: PlayerState, dt: number): void {
     p.reloadRemaining = Math.max(0, p.reloadRemaining - dt);
     if (p.reloadRemaining === 0) {
       const slot = p.slots[p.activeSlot];
-      const take = Math.min(def.magSize - slot.magAmmo, slot.reserveAmmo);
+      // Shell-by-shell loads one round per cycle and re-arms the timer until
+      // the mag is full or the reserve runs out; magazines swap in one go.
+      const take = def.shellReload
+        ? Math.min(1, def.magSize - slot.magAmmo, slot.reserveAmmo)
+        : Math.min(def.magSize - slot.magAmmo, slot.reserveAmmo);
       slot.magAmmo += take;
       slot.reserveAmmo -= take;
+      if (def.shellReload && slot.magAmmo < def.magSize && slot.reserveAmmo > 0) {
+        p.reloadRemaining = def.reloadTime;
+      }
     }
   }
 }
@@ -451,10 +477,18 @@ function tryStartReload(state: GameState, p: PlayerState): void {
 }
 
 function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
-  if (shooter.fireCooldown > 0 || shooter.reloadRemaining > 0) return;
   const slot = shooter.slots[shooter.activeSlot];
   const def = WEAPONS[slot.weaponId];
+  // Semi-automatic: one shot per press, so holding the trigger does nothing.
+  if (!def.auto && shooter.triggerHeld) return;
+  if (shooter.fireCooldown > 0) return;
   if (def.magSize > 0 && slot.magAmmo <= 0) return;
+  if (shooter.reloadRemaining > 0) {
+    // Shell-by-shell reloads are interruptible — firing cancels the reload and
+    // keeps the shells already loaded. Magazine reloads must finish.
+    if (!def.shellReload) return;
+    shooter.reloadRemaining = 0;
+  }
 
   // One trigger pull = one ammo, `pellets` independent rays (shotgun > 1).
   const spreadDeg = currentSpreadDeg(shooter);

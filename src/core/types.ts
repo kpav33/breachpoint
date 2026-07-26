@@ -59,7 +59,23 @@ export interface WeaponDef {
   /** 0 = no ammo tracking (knife). */
   magSize: number;
   reserveSize: number;
+  /**
+   * Seconds per reload. For shellReload weapons this is the time for **one
+   * shell**, not the whole magazine.
+   */
   reloadTime: number;
+  /**
+   * Full-auto: holding the trigger keeps firing at `rpm`. When false the
+   * weapon is semi-automatic — one shot per trigger *press* (CS-style), so
+   * rate of fire is capped by how fast the player clicks.
+   */
+  auto: boolean;
+  /**
+   * Reload one shell at a time (pump shotgun) instead of swapping a whole
+   * magazine, and let firing interrupt the reload — shells already loaded are
+   * kept. Default false.
+   */
+  shellReload?: boolean;
   /**
    * Spread while standing still, degrees (half-angle of the cone). This is an
    * always-applied floor, so it is **0 for every aimed weapon**: a stationary,
@@ -111,6 +127,12 @@ export interface PlayerState {
   reloadRemaining: number;
   /** Accumulated spread bloom from sustained fire, degrees. */
   bloomDeg: number;
+  /**
+   * Was the fire button down last tick? Semi-automatic weapons need a fresh
+   * press per shot, so the simulation has to see the trigger *edge* — holding
+   * the button must not keep firing them.
+   */
+  triggerHeld: boolean;
   /** Grenade inventory — at most one of each type. */
   grenades: GrenadeType[];
   /**

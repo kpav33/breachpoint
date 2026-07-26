@@ -624,7 +624,11 @@ export class BotController {
 
     if (this.burstLeft > 0) {
       this.burstLeft -= dt;
-      cmd.buttons |= Buttons.Shoot;
+      // Semi-automatic weapons fire on the press edge only, so a bot holding
+      // the trigger would get one shot per burst. Press only on ticks where the
+      // gun can actually fire: the sim then sees a release between every shot
+      // and the bot shoots at the weapon's real rate.
+      if (def.auto || (me.fireCooldown <= 0 && !me.triggerHeld)) cmd.buttons |= Buttons.Shoot;
       if (this.burstLeft <= 0) this.burstPause = this.profile.burstPauseSec;
     } else {
       this.burstPause -= dt;

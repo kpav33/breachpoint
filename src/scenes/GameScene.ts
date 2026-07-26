@@ -435,11 +435,14 @@ export class GameScene extends Phaser.Scene implements HudSource {
       gear,
       minimap: this.buildMinimap(subjectId),
       weaponLabel: def.id.toUpperCase(),
+      // Shell-by-shell reloads keep showing the count (with a trailing "…"):
+      // the shells tick up one at a time and you decide when to break off and
+      // fire, so hiding the number behind RELOADING would defeat the mechanic.
       ammoLabel:
-        me.reloadRemaining > 0
+        me.reloadRemaining > 0 && !def.shellReload
           ? 'RELOADING…'
           : def.magSize > 0
-            ? `${slot.magAmmo}/${slot.reserveAmmo}`
+            ? `${slot.magAmmo}/${slot.reserveAmmo}${me.reloadRemaining > 0 ? ' …' : ''}`
             : '—',
       ammoWarn: def.magSize > 0 && slot.magAmmo === 0 && me.reloadRemaining === 0,
       money: stats.money,
