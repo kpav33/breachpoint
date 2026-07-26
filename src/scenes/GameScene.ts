@@ -27,7 +27,16 @@ import {
   TICK_RATE,
   WEAPONS,
 } from '../core/config';
-import type { DeathCause, GameState, InputCommand, MapGrid, Segment, Team, Vec2 } from '../core/types';
+import type {
+  DeathCause,
+  GameState,
+  InputCommand,
+  MapGrid,
+  Segment,
+  SimEvent,
+  Team,
+  Vec2,
+} from '../core/types';
 import type { MapData } from '../core/map';
 import { spawnZoneRect } from '../core/map';
 import {
@@ -586,8 +595,14 @@ export class GameScene extends Phaser.Scene implements HudSource {
     for (const ev of this.state.events) {
       if (ev.type === 'shot') {
         for (const bot of Object.values(this.bots)) bot.hear(this.state, ev);
-        this.effects.handle(ev, this.humanId);
-        this.audio.play(this.audio.shotKey(ev.weaponId), ev.from);
+        if (this.gunFxPredicted(ev.playerId)) {
+          // Online: our own muzzle flash, tracer and gunshot were already drawn
+          // the instant we clicked (predicted). Only what the server alone knows
+          // survives here — the impact, placed at the true spread endpoint.
+          if (ev.hit === 'player') this.effects.bulletImpact(ev.to);
+        } else {
+          this.presentShot(ev);
+        }
         if (ev.hitPlayerId) {
           this.views[ev.hitPlayerId]?.flashDamage();
           if (ev.playerId === this.humanId) this.audio.play('hit');
@@ -605,6 +620,7 @@ export class GameScene extends Phaser.Scene implements HudSource {
           }
         }
       } else if (ev.type === 'reload') {
+        if (this.gunFxPredicted(ev.playerId)) continue; // already heard locally
         const p = this.state.players[ev.playerId];
         if (p) this.audio.play('reload', p.pos);
       } else if (ev.type === 'grenade_throw') {
@@ -622,6 +638,27 @@ export class GameScene extends Phaser.Scene implements HudSource {
       }
     }
     this.state.events.length = 0;
+  }
+
+  /**
+   * The purely presentational half of a shot: muzzle flash, tracer, impact
+   * decal, casing, camera kick, gunshot. Split out so the online client can
+   * feed it *predicted* shot events the moment the trigger is pulled, instead
+   * of waiting a round-trip for the server's echo.
+   */
+  protected presentShot(ev: Extract<SimEvent, { type: 'shot' }>): void {
+    this.effects.handle(ev, this.humanId);
+    this.audio.play(this.audio.shotKey(ev.weaponId), ev.from);
+  }
+
+  /**
+   * Has this player's gun feedback already been shown from prediction? Always
+   * false offline (the simulation runs here, so events are live); the online
+   * client answers true for its own player. See `presentShot`.
+   */
+  protected gunFxPredicted(playerId: string): boolean {
+    void playerId;
+    return false;
   }
 
   private handleGrenadeExplode(gtype: 'he' | 'flash' | 'smoke', pos: Vec2): void {

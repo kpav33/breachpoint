@@ -12,10 +12,18 @@
 // Everything presentational (fog, effects, audio, HUD, banners) is inherited
 // unchanged from GameScene.
 import type { Room } from 'colyseus.js';
-import { INTERP_DELAY_MS, PING_INTERVAL_MS, SNAPSHOT_RATE, TICK_RATE } from '../core/config';
+import {
+  INTERP_DELAY_MS,
+  PING_INTERVAL_MS,
+  PLAYER_RADIUS,
+  SNAPSHOT_RATE,
+  TICK_RATE,
+  WEAPONS,
+} from '../core/config';
 import { Buttons } from '../core/types';
-import type { GameState, InputCommand, PlayerState } from '../core/types';
+import type { GameState, InputCommand, PlayerState, SimEvent } from '../core/types';
 import { applyInput, createGameState } from '../core/simulation';
+import { raySegmentDist } from '../core/raycast';
 import { GameScene } from './GameScene';
 import type { GameConfig } from './MenuScene';
 import { movementFrozen } from '../match/MatchState';
@@ -92,10 +100,48 @@ export interface OnlineInit extends Partial<GameConfig> {
   name?: string;
 }
 
-/** Buttons that client prediction may apply. Everything else (firing,
- * reloading, throws, weapon switches) stays server-authoritative so we never
- * double-fire effects or desync ammo — only movement/aim are predicted. */
-const PREDICT_BUTTONS = Buttons.Walk;
+/**
+ * Buttons client prediction may apply — everything whose effect is confined to
+ * our own player: movement, firing, reloading, weapon switches. Predicting the
+ * gun is what makes shot feedback (flash, sound, tracer, ammo, reload timer)
+ * instant instead of a round-trip late; see `presentPredicted`.
+ *
+ * `Use` (plant/defuse) and `Drop` belong to the match layer, which the client
+ * doesn't simulate, so they're absent by construction. Throw* is included, but
+ * only so the grenade *charge* predicts (the charge ring, the fire block, the
+ * inventory). Masking it out is actively wrong rather than merely conservative:
+ * a player the server says is charging would look to `handleGrenadeCharge` like
+ * they had just released, every single tick, throwing a phantom grenade out of
+ * the predicted inventory and eating the throw lockout. The grenade itself
+ * stays server-authoritative — the predicted projectile is spawned into the
+ * throwaway scratch state and dropped, never drawn, and the predicted
+ * `grenade_throw` event is never presented.
+ */
+const PREDICT_BUTTONS =
+  Buttons.Walk |
+  Buttons.Shoot |
+  Buttons.Reload |
+  Buttons.SelectMelee |
+  Buttons.SelectSecondary |
+  Buttons.SelectPrimary |
+  Buttons.NextWeapon |
+  Buttons.PrevWeapon |
+  Buttons.ThrowHE |
+  Buttons.ThrowFlash |
+  Buttons.ThrowSmoke;
+
+/**
+ * Compact signature of the predicted gun state. Compared across
+ * reconciliation to catch prediction drift that positions alone can't show —
+ * a shot we predicted but the server rejected leaves a phantom muzzle flash
+ * behind and the ammo snaps back a snapshot later. Server-only inventory
+ * changes (a buy, a weapon pickup or drop) legitimately trip it too, so read
+ * the counter as "should be ~0 in a firefight", not "must be 0".
+ */
+function gunSig(p: PlayerState): string {
+  const s = p.slots[p.activeSlot];
+  return `${p.activeSlot}:${s.weaponId}:${s.magAmmo}:${s.reserveAmmo}:${p.reloadRemaining > 0 ? 1 : 0}`;
+}
 
 /** Positions extracted from one snapshot, kept for interpolation. */
 interface BufferEntry {
@@ -153,6 +199,10 @@ export class OnlineGameScene extends GameScene {
   private interpStarves: number[] = [];
   /** Timestamps of reconciliation corrections (server disagreed > epsilon). */
   private corrections: number[] = [];
+  /** Timestamps of locally predicted shots (net_graph rate). */
+  private predShots: number[] = [];
+  /** Reconciles where the replayed gun state didn't match the prediction. */
+  private gunMismatches: number[] = [];
   /** How far ahead of the render time the newest snapshot is, ms. */
   private interpBufferMs = 0;
   /** Approximate wire traffic, measured as JSON size of decoded messages. */
@@ -188,6 +238,8 @@ export class OnlineGameScene extends GameScene {
     this.snapArrivals = [];
     this.interpStarves = [];
     this.corrections = [];
+    this.predShots = [];
+    this.gunMismatches = [];
     this.interpBufferMs = 0;
     this.bytesIn = [];
     this.bytesOut = [];
@@ -479,7 +531,9 @@ export class OnlineGameScene extends GameScene {
     this.pendingInputs = this.pendingInputs.filter((c) => c.tick > ack);
 
     const before = this.predicted ? { x: this.predicted.pos.x, y: this.predicted.pos.y } : null;
+    const gunBefore = this.predicted ? gunSig(this.predicted) : null;
     this.predicted = structuredClone(serverMe);
+    // Silent replay: presenting effects here would repeat every unacked shot.
     for (const cmd of this.pendingInputs) this.applyPredicted(cmd);
     // net_graph: the resimulation landing away from the prediction means the
     // server corrected us (collision, dropped input, desync).
@@ -489,6 +543,9 @@ export class OnlineGameScene extends GameScene {
         CORRECTION_EPSILON_PX
     ) {
       this.corrections.push(performance.now());
+    }
+    if (gunBefore !== null && gunSig(this.predicted) !== gunBefore) {
+      this.gunMismatches.push(performance.now());
     }
 
     // Point the render state at the predicted player so everything downstream
@@ -522,16 +579,95 @@ export class OnlineGameScene extends GameScene {
       y: this.predicted.pos.y,
       angle: this.predicted.angle,
     };
-    this.applyPredicted(cmd);
+    this.applyPredicted(cmd, true);
   }
 
-  /** Run one InputCommand through core/simulation for the predicted player. */
-  private applyPredicted(cmd: InputCommand): void {
+  /**
+   * Run one InputCommand through core/simulation for the predicted player.
+   * `live` marks a command sampled on this very tick — only those may show
+   * their events. Reconciliation replays the same commands **silently**, so
+   * each shot is presented exactly once (when live) and then replayed unseen
+   * until the server acks it. Without that split a reconcile would re-fire the
+   * muzzle flash of every unacked shot; semi-automatic weapons especially,
+   * since `triggerHeld` is written after `tryFire` and a replay therefore
+   * reproduces the press edge faithfully every time.
+   */
+  private applyPredicted(cmd: InputCommand, live = false): void {
     if (!this.predicted) return;
     const masked = { ...cmd, buttons: cmd.buttons & PREDICT_BUTTONS };
     this.predictScratch.players = { [this.humanId]: this.predicted };
     applyInput(this.predictScratch, this.humanId, masked, this.map, FIXED_DT);
+    if (live) this.presentPredicted(this.predictScratch.events);
     this.predictScratch.events.length = 0;
+    // A predicted grenade release spawns its projectile in here. The real one
+    // arrives in a snapshot (scratch projectiles are never drawn or stepped) —
+    // drop it so it can't pile up over a match.
+    this.predictScratch.projectiles.length = 0;
+  }
+
+  /**
+   * Show the local half of our own predicted events. Damage, deaths, hit
+   * markers and grenades are never predicted: the scratch state holds only our
+   * own player, so `firePellet` has nothing to hit and a predicted shot
+   * physically cannot produce them. That's what makes the split safe without
+   * per-event tick matching — we render our own shots, the server's echo
+   * supplies only hit confirmation.
+   */
+  private presentPredicted(events: SimEvent[]): void {
+    let shotShown = false;
+    for (const ev of events) {
+      if (ev.type === 'shot') {
+        // One trigger pull = one tracer. Every pellet is re-centered on the
+        // same aim line, so drawing all eight of a shotgun blast would just
+        // stack eight identical tracers, flashes and casings.
+        if (shotShown) continue;
+        shotShown = true;
+        this.predShots.push(performance.now());
+        this.presentShot(this.centerOnAim(ev));
+      } else if (ev.type === 'reload' && this.predicted) {
+        this.audio.play('reload', this.predicted.pos);
+      }
+    }
+  }
+
+  /**
+   * Re-solve a predicted shot straight down the aim line. The simulation rolled
+   * real spread off `predictScratch.rngState`, which is not the server's RNG
+   * stream — that pellet went somewhere the server never sent it. Rather than
+   * draw a tracer that lies about the direction we aimed, we redraw it centered
+   * (locked decision) and let the server's echo report where the bullet
+   * actually landed. Only walls can stop it: the scratch state has no other
+   * players to test, and a hit is the server's to confirm.
+   */
+  private centerOnAim(
+    ev: Extract<SimEvent, { type: 'shot' }>,
+  ): Extract<SimEvent, { type: 'shot' }> {
+    const p = this.predicted!;
+    const def = WEAPONS[ev.weaponId];
+    const dir = { x: Math.cos(p.angle), y: Math.sin(p.angle) };
+    let dist = def.maxRangePx;
+    let hit: 'wall' | 'none' = 'none';
+    for (const seg of this.map.segments) {
+      const t = raySegmentDist(p.pos, dir, seg);
+      if (t !== null && t < dist) {
+        dist = t;
+        hit = 'wall';
+      }
+    }
+    const muzzle = PLAYER_RADIUS + 2;
+    return {
+      type: 'shot',
+      playerId: ev.playerId,
+      weaponId: ev.weaponId,
+      from: { x: p.pos.x + dir.x * muzzle, y: p.pos.y + dir.y * muzzle },
+      to: { x: p.pos.x + dir.x * dist, y: p.pos.y + dir.y * dist },
+      hit,
+    };
+  }
+
+  /** Our own gun feedback is drawn from prediction, not from the echo. */
+  protected gunFxPredicted(playerId: string): boolean {
+    return playerId === this.humanId;
   }
 
   /**
@@ -618,6 +754,8 @@ export class OnlineGameScene extends GameScene {
     prune(this.snapArrivals, cutoff);
     prune(this.interpStarves, cutoff);
     prune(this.corrections, cutoff);
+    prune(this.predShots, cutoff);
+    prune(this.gunMismatches, cutoff);
     while (this.bytesIn.length > 0 && this.bytesIn[0].at < cutoff) this.bytesIn.shift();
     while (this.bytesOut.length > 0 && this.bytesOut[0].at < cutoff) this.bytesOut.shift();
 
@@ -635,7 +773,12 @@ export class OnlineGameScene extends GameScene {
       'net recon',
       `${perSec(this.corrections).toFixed(1)} corrections/s, ${this.pendingInputs.length} unacked inputs`,
     );
-    this.debug.setLine('net traffic', `≈in ${kbps(this.bytesIn)} KB/s out ${kbps(this.bytesOut)} KB/s (json)`);
+    this.debug.setLine(
+      'net predict',
+      `${perSec(this.predShots).toFixed(1)} shots/s local, ` +
+        `${perSec(this.gunMismatches).toFixed(1)} gun mismatches/s`,
+    );
+    this.debug.setLine('net traffic',`≈in ${kbps(this.bytesIn)} KB/s out ${kbps(this.bytesOut)} KB/s (json)`);
     const p = this.serverPerf;
     if (p) {
       this.debug.setLine(

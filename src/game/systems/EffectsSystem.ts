@@ -97,8 +97,7 @@ export class EffectsSystem {
         });
         this.stampBulletHole(ev.to);
       } else if (ev.hit === 'player') {
-        this.fx.push({ kind: 'flash', at: ev.to, radius: 5, color: 0xff5544, age: 0, dur: 110 });
-        this.stampBlood(ev.to, 3);
+        this.bulletImpact(ev.to);
       }
 
       if (ev.weaponId !== 'knife') this.ejectCasing(ev.from, ev.to);
@@ -116,6 +115,17 @@ export class EffectsSystem {
       this.fx.push({ kind: 'ring', at: victimPos, maxRadius: 26, color: 0xff5544, age: 0, dur: 260 });
       this.stampBlood(victimPos, 8);
     }
+  }
+
+  /**
+   * Blood puff where a bullet landed on a player. Split out because online
+   * this is the one half of your own shot that only the server can place — it
+   * rolled the spread — so it keeps coming from the echoed event even when the
+   * rest of the shot was drawn from client prediction.
+   */
+  bulletImpact(at: Vec2): void {
+    this.fx.push({ kind: 'flash', at, radius: 5, color: 0xff5544, age: 0, dur: 110 });
+    this.stampBlood(at, 3);
   }
 
   /** Shake for taking a hit (no weapon involved). */

@@ -365,30 +365,79 @@ shots from prediction; the server's echoed `shot` event supplies only hit
 confirmation** (hit marker, victim flash, damage numbers — what only the server
 knows). No per-event tick-matching needed.
 
+**Carried over from the gunplay pass — read before starting A:**
+
+- **Tagging creates a NEW source of reconciliation corrections, by design.**
+  `move()` scales speed by `1 - tagged * TAG_MAX_SLOW`, but the client only learns
+  it has been tagged when a snapshot says so (up to one snapshot interval + latency
+  late). In that window the client predicts full speed while the server has already
+  slowed the player → divergence → a correction. Expect `corrections/s` on the
+  net_graph to spike **during firefights specifically**; that is the mechanism, not
+  a regression — do not "fix" it by unpredicting movement. Workstream B halves the
+  window for free by doubling the snapshot rate. (Reconciliation itself handles it
+  correctly: `reconcile` clones the server's player, `tagged` included, then replays
+  pending inputs through the same `applyInput`.)
+- **Semi-auto interacts with prediction.** `triggerHeld` is written in `applyInput`
+  *after* `tryFire`, so a predicted shot depends on the previous tick's trigger
+  state. Replaying unacked inputs re-runs that logic deterministically, which is
+  fine — but it means the "replay silently, render only on the live tick" rule in
+  step 2 below is load-bearing: without it a semi-auto shot would re-render its
+  effects on every reconciliation.
+
 **Workstream A — predict local shot feedback** (client-only; no `core/` change, no
 protocol bump, no golden-hash change; offline play untouched):
 
-- [ ] Extend `PREDICT_BUTTONS` to add Shoot + Reload + weapon-switch (Select*/Next/
-      Prev). **Grenades stay server-authoritative** — they spawn world projectiles
-      that would ghost/desync if predicted, so Throw* is deliberately excluded.
-- [ ] Split effect-rendering from reconciliation replay: `reconcile`'s replay of
+- [x] Extend `PREDICT_BUTTONS` to add Shoot + Reload + weapon-switch (Select*/Next/
+      Prev). ~~**Grenades stay server-authoritative** — they spawn world projectiles
+      that would ghost/desync if predicted, so Throw* is deliberately excluded.~~
+      **Corrected while implementing:** Throw\* had to be **included**, and excluding
+      it was not merely conservative but actively broken — a third non-obvious
+      interaction, in the same family as the two notes above. `handleGrenadeCharge`
+      treats "was charging, throw bit now absent" as a *release*. A player the server
+      says is charging therefore looked to the masked replay like they released on
+      **every** tick: phantom grenade spliced out of the predicted inventory (HUD
+      gear flicker), `GRENADE_THROW_LOCKOUT_SEC` spuriously blocking predicted fire,
+      and no charge ring, since `chargingGrenade` was nulled the moment it arrived.
+      (That bug was already latent with the movement-only mask; predicting fire is
+      what would have made it visible.) Including Throw\* predicts the *charge* only
+      — the projectile spawns into `predictScratch`, which is never drawn or stepped
+      and is now cleared each apply, and the predicted `grenade_throw` event is never
+      presented. The grenade itself still arrives from the server.
+- [x] Split effect-rendering from reconciliation replay: `reconcile`'s replay of
       pending inputs must stay **silent**; only the live `predictTick` renders new
       predicted effects. That presents each shot exactly once (rendered when live,
-      replayed silently until acked).
-- [ ] Route predicted `shot`/`reload` events from the scratch state into the
+      replayed silently until acked). — `applyPredicted(cmd, live)`; only
+      `predictTick` passes `live: true`.
+- [x] Route predicted `shot`/`reload` events from the scratch state into the
       existing effects/audio path — muzzle flash, gunshot, tracer, bloom, ammo
       decrement, reload timer all become instant. Predicted tracer is **centered on
       aim** (recompute endpoint via a centered wall raycast); the sim still rolls
-      real spread server-side for the actual hit.
-- [ ] Add a protected seam in `drainSimEvents` (base `GameScene`) so
+      real spread server-side for the actual hit. — `presentPredicted` +
+      `centerOnAim`. Consequence of centering: a shotgun blast now presents **one**
+      tracer/flash/casing rather than eight identical stacked copies (the scatter
+      shows up as server-confirmed blood), and wall sparks/bullet holes mark the aim
+      line rather than the true spread endpoint.
+- [x] Add a protected seam in `drainSimEvents` (base `GameScene`) so
       `OnlineGameScene` suppresses the *presentational* part of the local player's
       own `shot`/`reload` echoes (keep the `hitPlayerId` block). Death/grenade/hit
-      events still come from the server — you never predict your own death.
-- [ ] Extend the net_graph overlay: predicted-shots/s + a prediction-vs-server
+      events still come from the server — you never predict your own death. —
+      `gunFxPredicted(playerId)` + `presentShot()`; the echo of a suppressed local
+      shot still contributes `effects.bulletImpact(ev.to)` on a player hit, the one
+      piece of a shot only the server can place.
+- [x] Extend the net_graph overlay: predicted-shots/s + a prediction-vs-server
       mismatch counter (invisible-state convention; catches reconcile regressions —
-      e.g. a dropped input causing a one-frame phantom flash before ammo snaps).
+      e.g. a dropped input causing a one-frame phantom flash before ammo snaps). —
+      `net predict` line (`gunSig` compares active slot / weapon / mag / reserve /
+      reloading across each reconcile). Note buys, pickups and drops are server-only
+      and legitimately trip it, so read it as "≈0 during a firefight".
+- [x] **Headless verification (2026-07):** local server + browser client, pistol at
+      ~250 ms simulated RTT — ammo decrements on the *same frame* as the click (far
+      inside one RTT, so it can only be predicted), the centered tracer draws down
+      the aim line, `net predict` registers the shot, six semi-auto clicks consumed
+      exactly six rounds (no double-fire from replay), and gun-mismatches +
+      corrections both stayed at 0.0/s.
 - [ ] Playtest at ~50 ms: confirm the gun responds to clicks; watch the mismatch
-      counter stays near zero.
+      counter stays near zero. **← the human feel test, still open**
 
 **Workstream B — update-rate + interp tuning** (after A, measurement-driven; no
 protocol bump, no core change):
