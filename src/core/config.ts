@@ -19,6 +19,27 @@ export const WALK_SPEED = 110;
 /** Seconds a weapon is unusable after switching to it. */
 export const WEAPON_SWITCH_TIME = 0.4;
 
+/**
+ * Accuracy settle time (the counter-strafe analogue). The movement spread
+ * penalty snaps to full the instant you move, but decays back over this many
+ * seconds after you stop — so you must plant your feet a beat before firing
+ * instead of releasing the key and shooting in the same tick.
+ */
+export const ACCURACY_RECOVERY_SEC = 0.25;
+
+/**
+ * Tagging: being shot briefly slows you, so the player who lands the first
+ * bullet wins the movement duel (this is what makes peeking a real decision).
+ * A hit adds `hpLost * TAG_PER_DAMAGE` to a 0..1 tag factor, which scales
+ * movement speed down by up to TAG_MAX_SLOW and bleeds off over
+ * TAG_RECOVERY_SEC. At the default numbers one rifle body shot (33) slows the
+ * victim to ~74% speed, recovering in half a second. Scaling by health lost
+ * rather than raw damage means armor blunts the stagger too.
+ */
+export const TAG_PER_DAMAGE = 0.02;
+export const TAG_MAX_SLOW = 0.4;
+export const TAG_RECOVERY_SEC = 0.5;
+
 // --- Vision (Phase 4) ---------------------------------------------------
 /** Full width of the view cone, degrees. */
 export const VISION_CONE_DEG = 110;
@@ -281,6 +302,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 0,
     reserveSize: 0,
     reloadTime: 0,
+    auto: true,
     spreadBaseDeg: 0,
     spreadMoveDeg: 0,
     bloomPerShotDeg: 0,
@@ -301,7 +323,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 12,
     reserveSize: 36,
     reloadTime: 1.8,
-    spreadBaseDeg: 1.5,
+    auto: false,
+    spreadBaseDeg: 0,
     spreadMoveDeg: 1.2,
     bloomPerShotDeg: 0.7,
     bloomMaxDeg: 2.5,
@@ -321,7 +344,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 7,
     reserveSize: 21,
     reloadTime: 2.2,
-    spreadBaseDeg: 0.8,
+    auto: false,
+    spreadBaseDeg: 0,
     spreadMoveDeg: 4.0,
     bloomPerShotDeg: 2.0,
     bloomMaxDeg: 6.0,
@@ -340,7 +364,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     rpm: 68,
     magSize: 6,
     reserveSize: 24,
-    reloadTime: 3.0,
+    // Per shell, not per magazine: 6 × 0.5 s = the same 3.0 s from empty as
+    // the old whole-mag reload, but interruptible after any shell.
+    reloadTime: 0.5,
+    auto: false,
+    shellReload: true,
     spreadBaseDeg: 4.0,
     spreadMoveDeg: 1.5,
     bloomPerShotDeg: 0,
@@ -362,7 +390,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 30,
     reserveSize: 90,
     reloadTime: 2.2,
-    spreadBaseDeg: 3.0,
+    auto: true,
+    spreadBaseDeg: 0,
     spreadMoveDeg: 1.5,
     bloomPerShotDeg: 0.35,
     bloomMaxDeg: 3.0,
@@ -382,7 +411,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 30,
     reserveSize: 90,
     reloadTime: 2.5,
-    spreadBaseDeg: 2.0,
+    auto: true,
+    spreadBaseDeg: 0,
     spreadMoveDeg: 2.5,
     bloomPerShotDeg: 0.45,
     bloomMaxDeg: 3.5,
@@ -402,6 +432,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 10,
     reserveSize: 20,
     reloadTime: 3.0,
+    auto: false,
     spreadBaseDeg: 0.1,
     spreadMoveDeg: 5.0,
     bloomPerShotDeg: 0,

@@ -1,5 +1,5 @@
 import type { PlayerState, WeaponDef, WeaponId, WeaponSlot } from './types.ts';
-import { MOVE_SPEED, WEAPONS } from './config.ts';
+import { WEAPONS } from './config.ts';
 
 export function makeSlot(weaponId: WeaponId): WeaponSlot {
   const def = WEAPONS[weaponId];
@@ -33,8 +33,9 @@ export function givePrimary(p: PlayerState, weaponId: WeaponId): void {
  */
 export function currentSpreadDeg(p: PlayerState): number {
   const def = activeWeapon(p);
-  const speedFrac = Math.min(Math.hypot(p.vel.x, p.vel.y) / MOVE_SPEED, 1);
-  return def.spreadBaseDeg + def.spreadMoveDeg * speedFrac + p.bloomDeg;
+  // p.moveSpread, not the live velocity: it lags the stop by
+  // ACCURACY_RECOVERY_SEC so you have to settle before the shot lands true.
+  return def.spreadBaseDeg + def.spreadMoveDeg * p.moveSpread + p.bloomDeg;
 }
 
 /** Linear range falloff: full damage until start, minMult at end. */

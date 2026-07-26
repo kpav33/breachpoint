@@ -59,8 +59,31 @@ export interface WeaponDef {
   /** 0 = no ammo tracking (knife). */
   magSize: number;
   reserveSize: number;
+  /**
+   * Seconds per reload. For shellReload weapons this is the time for **one
+   * shell**, not the whole magazine.
+   */
   reloadTime: number;
-  /** Spread while standing still, degrees (half-angle of the cone). */
+  /**
+   * Full-auto: holding the trigger keeps firing at `rpm`. When false the
+   * weapon is semi-automatic — one shot per trigger *press* (CS-style), so
+   * rate of fire is capped by how fast the player clicks.
+   */
+  auto: boolean;
+  /**
+   * Reload one shell at a time (pump shotgun) instead of swapping a whole
+   * magazine, and let firing interrupt the reload — shells already loaded are
+   * kept. Default false.
+   */
+  shellReload?: boolean;
+  /**
+   * Spread while standing still, degrees (half-angle of the cone). This is an
+   * always-applied floor, so it is **0 for every aimed weapon**: a stationary,
+   * unbloomed first shot must land exactly on the crosshair (CS-style
+   * first-shot accuracy — precise aim has to be rewarded). Non-zero only where
+   * scatter is the point (shotgun) or as a token amount (sniper). Inaccuracy
+   * comes from spreadMoveDeg (moving) and bloom (firing too fast) instead.
+   */
   spreadBaseDeg: number;
   /** Extra spread at full movement speed, degrees. */
   spreadMoveDeg: number;
@@ -104,6 +127,24 @@ export interface PlayerState {
   reloadRemaining: number;
   /** Accumulated spread bloom from sustained fire, degrees. */
   bloomDeg: number;
+  /**
+   * Smoothed movement-inaccuracy factor, 0..1. Rises instantly with speed but
+   * decays over ACCURACY_RECOVERY_SEC once you stop, which is what forces you
+   * to settle before shooting. Read by currentSpreadDeg instead of the raw
+   * velocity, which would snap to zero the tick the movement key is released.
+   */
+  moveSpread: number;
+  /**
+   * Tag factor, 0..1: how much recent damage is slowing this player. Bumped by
+   * incoming bullets, bleeds off over TAG_RECOVERY_SEC.
+   */
+  tagged: number;
+  /**
+   * Was the fire button down last tick? Semi-automatic weapons need a fresh
+   * press per shot, so the simulation has to see the trigger *edge* — holding
+   * the button must not keep firing them.
+   */
+  triggerHeld: boolean;
   /** Grenade inventory — at most one of each type. */
   grenades: GrenadeType[];
   /**

@@ -243,38 +243,71 @@ The netcode "Shooting feel" work below is deliberately sequenced **last**, as th
 most complex part — this pass lands first.
 
 Cross-cutting costs: these are `core/` changes, so they affect **online and offline
-identically**, will bump the **golden replay hash** once (intentional sim-behavior
-change), and several add small `PlayerState` fields → expect **one
-`PROTOCOL_VERSION` bump** for the batch. Exact field/wire details decided at
-implementation.
+identically**, bump the **golden replay hash**, and several add small `PlayerState`
+fields → a `PROTOCOL_VERSION` bump. Status: **the pass is complete.** Fire control
+landed as version 7 (`triggerHeld`, hash `c09aea069df80501`); movement/combat
+coupling as **version 8** (`moveSpread`, `tagged`, hash `f6441eae02e790ca`).
+Next up is the netcode "Shooting feel" work below.
 
-- [ ] **First-shot accuracy (laser-perfect).** Do this one first — trivial, unblocks
-      the "aiming matters" feel. `spreadBaseDeg` → **0** for rifle, smg, pistol,
-      deagle so a stationary, unbloomed first shot is dead-center. Keep shotgun (4°)
-      and sniper (0.1°). Movement penalty (`spreadMoveDeg`) and per-shot `bloom*`
-      unchanged → tap for precision, spray/movement drift. Bots add their own
-      `aimErrorDeg` on top, so the lethality rebalance is minor (quick sanity-check).
-- [ ] **Semi-auto fire modes.** Add `auto: boolean` to `WeaponDef`; **true only for
-      smg + rifle**. Everything else (pistol, deagle, sniper, shotgun, knife) fires
-      **one shot per trigger press** — holding the button no longer auto-sprays them
-      at RPM (today `tryFire` gates on `fireCooldown` only, so held-mouse sprays
-      everything). Needs trigger-edge detection in the sim (track the previous
-      trigger state per player); coordinate with netcode Workstream A, which also
-      touches the fire path.
-- [ ] **Accuracy recovery after stopping (counter-strafe analogue).** Today accuracy
-      is pinpoint one tick after velocity hits 0. Add a short, tunable recovery ramp
-      so you must *settle* briefly after moving before the move-penalty fully clears
-      — rewards stopping before you shoot, like CS. Keep it short so it doesn't feel
-      sluggish.
-- [ ] **Tagging (getting shot slows you).** On taking a bullet, apply a decaying
-      movement-speed penalty (a "tagged" factor that recovers over a fraction of a
-      second). Shapes peek/hold duels the CS way. Adds a small `PlayerState` timer.
-- [ ] **Shotgun shell-by-shell reload.** Reload one shell at a time, cancelable
-      mid-reload to fire, instead of the current whole-mag refill after `reloadTime`
-      (`tickTimers`). CS pump-shotgun feel.
-- [ ] **Auto-reload on empty mag.** When the active weapon's mag hits 0 and reserve
-      > 0, start the reload automatically — no manual R needed (manual R still works
-      early). Simple: call the existing `tryStartReload` when `magAmmo` reaches 0.
+- [x] **First-shot accuracy (laser-perfect)** — **done (2026-07).** `spreadBaseDeg`
+      → **0** for rifle, smg, pistol, deagle; shotgun (4°) and sniper (0.1°) kept.
+      Movement penalty and bloom untouched → tap for precision, spray/movement
+      drift. Locked in behaviorally by a new test in `tests/core-sim.test.mjs`
+      (stationary first shot hits a target at 1200 px on **25/25** seeds; the same
+      shot while moving hits **0/25**) — a config-value assertion alone wouldn't
+      catch a regression in how spread is applied. **The golden replay hash did NOT
+      change**, contrary to this plan's earlier prediction: `nextRand` is called once
+      per pellet regardless of spread *magnitude*, so `rngState` is identical, and
+      the replay's single player-hit (1 of 40 shots) was well-centered enough to land
+      either way. No protocol bump. The `WeaponDef.spreadBaseDeg` doc comment in
+      `core/types.ts` now records why 0 is the intended value for aimed weapons.
+- [x] **Semi-auto fire modes** — **done (2026-07).** `WeaponDef.auto` (required, so
+      every weapon declares it); **true for smg, rifle and knife**, false for pistol,
+      deagle, sniper, shotgun. *Deviation from this plan's earlier text, which listed
+      the knife as semi:* CS repeats knife slashes while the button is held, and
+      making it semi would only add click-spam to a fallback weapon. Edge detection
+      is `PlayerState.triggerHeld`, recorded in `applyInput` **after** `tryFire` so
+      the fire check sees the previous tick. No server change needed: `repeatCommand`
+      keeps Shoot held on stale commands, and the edge rule makes that a no-op for
+      semi-auto (auto weapons still ride out packet loss as before).
+      **Bots needed a matching fix** — `fireControl` held the trigger for the whole
+      burst, which under the edge rule is one shot per burst (a severe silent nerf on
+      pistol rounds). Bots now press only on ticks where the gun can actually fire,
+      so the sim sees a release between shots: measured 8–9 pistol shots/3 s for
+      normal/hard vs ~4 when held. Pinned by a new `tests/bot-fire.test.mjs`.
+- [x] **Accuracy recovery after stopping (counter-strafe analogue)** — **done
+      (2026-07).** `currentSpreadDeg` now reads `PlayerState.moveSpread` (0..1)
+      instead of live velocity: it snaps up the instant you move and decays linearly
+      over `ACCURACY_RECOVERY_SEC` (0.25 s) once you stop, so releasing the key and
+      firing in the same tick no longer gives a pinpoint shot. Updated in `move()`
+      after velocity is set. Note the target is still *actual* speed over
+      `MOVE_SPEED` (unchanged), so anything that slows you — heavy weapon, walking,
+      being tagged — also steadies your aim, as in CS.
+- [x] **Tagging (getting shot slows you)** — **done (2026-07).** `PlayerState.tagged`
+      (0..1) rises on bullet hits by `hpLost * TAG_PER_DAMAGE` and bleeds off over
+      `TAG_RECOVERY_SEC` (0.5 s); movement is scaled by `1 - tagged * TAG_MAX_SLOW`
+      (up to 40 % slower). One rifle body shot → ~74 % speed. Two deliberate design
+      calls: it is **gunfire-only** (knife included, but *not* HE/bomb — explosions
+      already control space via damage, and a slow on top would make utility
+      oppressive), and it scales by **health actually lost**, so **armor blunts the
+      stagger as well as the damage**. Bot duel sanity check after the pass: kills
+      still land in 5/5 duels, ~1 s (hard) / ~1.8 s (normal) / ~7 s (easy).
+      Debug overlay gained `spread` (now showing the move factor) and `tagged` lines,
+      per the invisible-state convention.
+- [x] **Shotgun shell-by-shell reload** — **done (2026-07).** Optional
+      `WeaponDef.shellReload`; for such weapons `reloadTime` means **per shell**, so
+      the shotgun went 3.0 s/mag → 0.5 s/shell (still 3.0 s from empty, but
+      interruptible after any shell). `tickTimers` loads one shell and re-arms the
+      timer until the mag is full or the reserve is dry; `tryFire` cancels an
+      in-progress shell reload and keeps the shells already loaded (magazine reloads
+      still must finish). HUD change: shell reloads keep showing the live ammo count
+      with a trailing "…" instead of `RELOADING…`, since watching shells tick up is
+      the whole point of the mechanic.
+- [x] **Auto-reload on empty mag** — **done (2026-07).** `autoReload` runs at the end
+      of `applyInput`: mag at 0 → `tryStartReload` (which already no-ops on a dry
+      reserve or an in-progress reload). Manual R still works early. Skipped while a
+      grenade is charged so a throw isn't interrupted. Side benefit: the HUD's
+      `ammoWarn` now means "genuinely out of ammo" rather than "press R".
 
 Recorded decisions (no code — so they aren't re-litigated):
 
@@ -422,12 +455,15 @@ working; the fixes above live in parts 1–2 plus the update-rate discussion.
 
 ## Starter Weapon Table (tune later)
 
+Spread° is the **base** (standing-still) spread — 0 for aimed weapons since the
+first-shot-accuracy pass; inaccuracy now comes from movement + bloom instead.
+
 | Weapon | Dmg | RPM | Mag | Reload | Spread° | Price | Speed× |
 | ------ | --- | --- | --- | ------ | ------- | ----- | ------ |
 | Knife  | 35  | 120 | —   | —      | —       | free  | 1.10   |
-| Pistol | 26  | 300 | 12  | 1.8s   | 1.5     | free  | 1.00   |
-| SMG    | 20  | 750 | 30  | 2.2s   | 3.0     | $1200 | 1.00   |
-| Rifle  | 33  | 600 | 30  | 2.5s   | 2.0     | $2700 | 0.93   |
+| Pistol | 26  | 300 | 12  | 1.8s   | 0       | free  | 1.00   |
+| SMG    | 20  | 750 | 30  | 2.2s   | 0       | $1200 | 1.00   |
+| Rifle  | 33  | 600 | 30  | 2.5s   | 0       | $2700 | 0.93   |
 | Sniper | 110 | 40  | 10  | 3.0s   | 0.1     | $4750 | 0.85   |
 
 ## Key References

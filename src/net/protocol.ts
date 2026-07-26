@@ -35,7 +35,7 @@ export interface RoomMetadata {
  * embedded state shapes so stale clients get a clear "refresh" error
  * instead of confusing desyncs.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 8;
 
 // Client → server messages.
 /** Payload: InputMessage — one per client tick. */

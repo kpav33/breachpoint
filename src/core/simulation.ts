@@ -12,6 +12,7 @@ import type {
   WeaponId,
 } from './types.ts';
 import {
+  ACCURACY_RECOVERY_SEC,
   ARMOR_ABSORPTION,
   FRIENDLY_FIRE,
   GRENADES,
@@ -30,6 +31,9 @@ import {
   PLAYER_MAX_HP,
   PLAYER_RADIUS,
   SMOKE_DURATION_SEC,
+  TAG_MAX_SLOW,
+  TAG_PER_DAMAGE,
+  TAG_RECOVERY_SEC,
   WALK_SPEED,
   WALL_HEIGHT_PX,
   WEAPONS,
@@ -73,6 +77,9 @@ export function createPlayer(
     fireCooldown: 0,
     reloadRemaining: 0,
     bloomDeg: 0,
+    moveSpread: 0,
+    tagged: 0,
+    triggerHeld: false,
     chargingGrenade: null,
     chargeTicks: 0,
   };
@@ -93,6 +100,9 @@ export function respawnPlayer(state: GameState, playerId: string, pos: Vec2): vo
   p.fireCooldown = 0;
   p.reloadRemaining = 0;
   p.bloomDeg = 0;
+  p.moveSpread = 0;
+  p.tagged = 0;
+  p.triggerHeld = false;
   p.chargingGrenade = null;
   p.chargeTicks = 0;
 }
@@ -153,7 +163,24 @@ export function applyInput(
   if (cmd.buttons & Buttons.Reload) tryStartReload(state, p);
   handleGrenadeCharge(state, p, cmd, dt);
   // Can't shoot while a grenade is charged and ready to throw.
-  if (cmd.buttons & Buttons.Shoot && p.chargingGrenade === null) tryFire(state, p, map);
+  const triggerDown = (cmd.buttons & Buttons.Shoot) !== 0;
+  if (triggerDown && p.chargingGrenade === null) tryFire(state, p, map);
+  // Recorded after firing so tryFire sees last tick's state: semi-automatic
+  // weapons fire only on the press edge, never while the button stays down.
+  p.triggerHeld = triggerDown;
+  autoReload(state, p);
+}
+
+/**
+ * An empty magazine reloads itself — once the mag runs dry there is nothing
+ * else a player could want, and making them press R is just a delay. Pressing
+ * R early still works. Skipped while a grenade is charged so a throw isn't
+ * interrupted.
+ */
+function autoReload(state: GameState, p: PlayerState): void {
+  if (p.chargingGrenade !== null) return;
+  if (p.slots[p.activeSlot].magAmmo > 0) return;
+  tryStartReload(state, p); // no-ops when the reserve is dry or already reloading
 }
 
 /** Which grenade a throw button asks for this tick (HE > flash > smoke), or null. */
@@ -409,14 +436,22 @@ function tickTimers(p: PlayerState, dt: number): void {
 
   const def = WEAPONS[p.slots[p.activeSlot].weaponId];
   p.bloomDeg = Math.max(0, p.bloomDeg - def.bloomDecayDegPerSec * dt);
+  p.tagged = Math.max(0, p.tagged - dt / TAG_RECOVERY_SEC);
 
   if (p.reloadRemaining > 0) {
     p.reloadRemaining = Math.max(0, p.reloadRemaining - dt);
     if (p.reloadRemaining === 0) {
       const slot = p.slots[p.activeSlot];
-      const take = Math.min(def.magSize - slot.magAmmo, slot.reserveAmmo);
+      // Shell-by-shell loads one round per cycle and re-arms the timer until
+      // the mag is full or the reserve runs out; magazines swap in one go.
+      const take = def.shellReload
+        ? Math.min(1, def.magSize - slot.magAmmo, slot.reserveAmmo)
+        : Math.min(def.magSize - slot.magAmmo, slot.reserveAmmo);
       slot.magAmmo += take;
       slot.reserveAmmo -= take;
+      if (def.shellReload && slot.magAmmo < def.magSize && slot.reserveAmmo > 0) {
+        p.reloadRemaining = def.reloadTime;
+      }
     }
   }
 }
@@ -432,13 +467,27 @@ function move(p: PlayerState, cmd: InputCommand, map: SimMap, dt: number): void 
   }
 
   const def = WEAPONS[p.slots[p.activeSlot].weaponId];
-  const speed = (cmd.buttons & Buttons.Walk ? WALK_SPEED : MOVE_SPEED) * def.speedMult;
+  // Recent damage drags the victim down (tagging), so whoever shoots first
+  // also wins the footrace out of the duel.
+  const tagMult = 1 - p.tagged * TAG_MAX_SLOW;
+  const speed = (cmd.buttons & Buttons.Walk ? WALK_SPEED : MOVE_SPEED) * def.speedMult * tagMult;
   p.vel.x = mx * speed;
   p.vel.y = my * speed;
 
   p.pos.x += p.vel.x * dt;
   p.pos.y += p.vel.y * dt;
   resolveCircleGrid(p.pos, PLAYER_RADIUS, map.grid);
+
+  // Movement ruins accuracy immediately, but recovers gradually: rise to the
+  // current speed at once, then bleed back down over ACCURACY_RECOVERY_SEC.
+  // The target is actual speed over MOVE_SPEED (unchanged from before this
+  // was smoothed), so anything that slows you — a heavy weapon, walking, being
+  // tagged — also steadies your aim, as in CS.
+  const target = Math.min(Math.hypot(p.vel.x, p.vel.y) / MOVE_SPEED, 1);
+  p.moveSpread =
+    target >= p.moveSpread
+      ? target
+      : Math.max(target, p.moveSpread - dt / ACCURACY_RECOVERY_SEC);
 }
 
 function tryStartReload(state: GameState, p: PlayerState): void {
@@ -451,10 +500,18 @@ function tryStartReload(state: GameState, p: PlayerState): void {
 }
 
 function tryFire(state: GameState, shooter: PlayerState, map: SimMap): void {
-  if (shooter.fireCooldown > 0 || shooter.reloadRemaining > 0) return;
   const slot = shooter.slots[shooter.activeSlot];
   const def = WEAPONS[slot.weaponId];
+  // Semi-automatic: one shot per press, so holding the trigger does nothing.
+  if (!def.auto && shooter.triggerHeld) return;
+  if (shooter.fireCooldown > 0) return;
   if (def.magSize > 0 && slot.magAmmo <= 0) return;
+  if (shooter.reloadRemaining > 0) {
+    // Shell-by-shell reloads are interruptible — firing cancels the reload and
+    // keeps the shells already loaded. Magazine reloads must finish.
+    if (!def.shellReload) return;
+    shooter.reloadRemaining = 0;
+  }
 
   // One trigger pull = one ammo, `pellets` independent rays (shotgun > 1).
   const spreadDeg = currentSpreadDeg(shooter);
@@ -504,7 +561,13 @@ function firePellet(
   }
 
   if (victim) {
+    const hpBefore = victim.hp;
     damagePlayer(state, victim.id, Math.round(damageAtRange(def, hitDist)), shooter.id, def.id);
+    // Tagging is deliberately a gunfire-only effect (the knife counts):
+    // explosions already control space through raw damage, and stacking a slow
+    // on top of an HE would make utility oppressive. Scaled by the health
+    // actually lost, so armor blunts the stagger as well as the damage.
+    victim.tagged = Math.min(1, victim.tagged + (hpBefore - victim.hp) * TAG_PER_DAMAGE);
   }
 
   const muzzle = PLAYER_RADIUS + 2;
