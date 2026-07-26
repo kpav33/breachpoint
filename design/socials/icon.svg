@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg" cx="32" cy="18" r="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#171d25"></stop>
+      <stop offset="1" stop-color="#0b0e12"></stop>
+    </radialGradient>
+    <radialGradient id="cone" cx="32" cy="50" r="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5964a" stop-opacity="0.55"></stop>
+      <stop offset="0.45" stop-color="#ef7d3a" stop-opacity="0.17"></stop>
+      <stop offset="1" stop-color="#ef7d3a" stop-opacity="0"></stop>
+    </radialGradient>
+    <radialGradient id="glow" cx="32" cy="50" r="15" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef7d3a" stop-opacity="0.6"></stop>
+      <stop offset="1" stop-color="#ef7d3a" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#bg)"></rect>
+  <path d="M32 50 L6 5 L58 5 Z" fill="url(#cone)"></path>
+  <path d="M32 50 L6 5 M32 50 L58 5" stroke="#ffcf9e" stroke-opacity="0.18" stroke-width="0.8" fill="none"></path>
+  <circle cx="32" cy="50" r="15" fill="url(#glow)"></circle>
+  <circle cx="32" cy="50" r="6.6" fill="#ef7d3a" stroke="#ffffff" stroke-width="2.4"></circle>
+  <path d="M32 40.5 L36 46 L28 46 Z" fill="#ffffff"></path>
+</svg>

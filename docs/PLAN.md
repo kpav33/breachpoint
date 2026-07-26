@@ -483,13 +483,18 @@ protocol bump, no core change):
         snapshots (send only changed fields against the client's last ack) and/or a
         binary encoding; either is a protocol bump. Revisit when rooms actually fill
         or the host starts charging for egress.
-- [ ] Re-test tracking smoothness + shot feel at ~50 and ~80 ms ping. **← human feel
-      test, still open.** Headless locally is healthy (buffer sits at ~49 ms, i.e.
-      one interp delay of cushion as intended) but says nothing about real jitter.
-      The number to watch on the deploy is **`starved/s`** on the net_graph: 50 ms is
-      only 1.5 intervals of cushion, so if the buffer starves often at ~80 ms ping,
-      raise `INTERP_DELAY_MS` back toward 66 (2 intervals) rather than dropping the
-      snapshot rate — the rate is what fixed target tracking.
+- [x] Re-test tracking smoothness + shot feel at ~50 and ~80 ms ping. — **done
+      2026-07-26: "feels pretty good now."** One caveat left deliberately unclosed:
+      50 ms is only 1.5 snapshot intervals of cushion, and local testing can't
+      produce real jitter. If online play ever gets choppy at higher ping, check
+      **`starved/s`** on the net_graph first and raise `INTERP_DELAY_MS` back toward
+      66 (2 intervals) — do **not** drop the snapshot rate, which is what fixed
+      target tracking.
+
+**Status: the "Shooting feel" issue is closed.** A (predicted shot feedback) and B
+(30 Hz snapshots, 50 ms interp, re-based connection indicators) both shipped and were
+confirmed on the live deploy 2026-07-26. All three diagnosed causes are addressed; no
+protocol bump and no `core/` simulation change was needed for either workstream.
 
 Reference reading for this specific problem (see Key References): Gambetta parts
 **1–2** (client-side prediction + server reconciliation — the same idea extended to
@@ -530,6 +535,33 @@ working; the fixes above live in parts 1–2 plus the update-rate discussion.
 ## Phase 10 — Post-launch niceties (backlog)
 
 ~~Browsable live room list in the lobby~~ — **done (2026-07):** built-in Colyseus `LobbyRoom` defined in `server/index.ts`; MatchRoom's existing metadata (name/map/humans/capacity/phase/round, `RoomMetadata` in `protocol.ts`) is pushed to subscribers via `updateLobby` on every `publishMetadata`. LobbyScene shows a live OPEN MATCHES panel (updates in place as rooms appear/fill/close; full rooms grayed; click to join; private rooms stay hidden). Additive change — no protocol bump. Still open: spectator mode with free camera · demo/replay recording (store input streams — cheap, since sim is deterministic; the Phase 9.5 replay tests lay the groundwork) · basic stats persistence · Elo/matchmaking · mobile touch controls · Steam-style skins if you hate free time.
+
+**Aim sensitivity — requested 2026-07-26, and bigger than a slider.** Players want to
+tune aim feel to taste. The blocker is that aiming is currently **absolute**:
+`InputSystem.sample()` takes the world point under the OS cursor and does
+`atan2(world - playerPos)`, so the crosshair *is* the cursor. There is no scalar to
+multiply — any "sensitivity" factor would only make the crosshair stop tracking the
+pointer, which reads as broken rather than adjustable. (Same root cause as the locked
+"no CS spray patterns" decision: absolute aim means there's nothing to pull down.)
+
+Doing it properly means an optional **relative aim mode**: pointer lock, accumulate
+`movementX/Y` into a virtual crosshair (or straight into an aim angle), scale those
+deltas by the sensitivity setting. Confined to `game/` + `scenes/` — `aimAngle` stays
+the same absolute-radians field on the wire, so **no `core/` change and no protocol
+bump**. The persisted-settings mechanism and settings panel already exist
+(`game/settings.ts` + `SettingsPanel`), so the slider itself is the cheap part. What
+actually needs designing:
+
+- **ESC collides with pointer lock.** ESC is the pause key, and the browser also uses
+  it to exit lock — pausing and unlocking will fight. Needs a deliberate resolution.
+- **The game must draw its own crosshair** (the OS cursor is hidden under lock) and
+  clamp the virtual one to the viewport.
+- **Lock has to release for UI** — buy menu, chat, scoreboard, pause — and re-acquire
+  cleanly, which requires a user gesture on re-entry.
+- **Camera zoom** changes the px→world mapping, so sensitivity must be defined against
+  logical units, not device pixels.
+- Keep absolute aim as the default and the mode as opt-in; the two feel completely
+  different and mixing them per-match would be disorienting.
 
 **2.5D look (worth a prototype):** keep the top-down camera and the 2D sim exactly as-is, but render walls with fake height — floor footprint + extruded side faces shearing away from the camera center (GTA1/Hotline Miami style), plus drop shadows under players. Pure rendering change confined to `MapLoader`/the render layer: world x/y still maps straight to screen x/y, so aiming, fog, and the minimap keep working untouched. Prototype on one map before committing; do it after the Phase 9.5 replay tests exist to prove the sim stayed untouched. — **done (2026-07), kept:** `ElevationSystem` (render-only) greedy-meshes the collision grid into wall rects and redraws them per frame as extruded blocks (`WALL_EXTRUDE` in `theme.ts`; tops `wallTop`, N/S faces `wall`, E/W `wallDark`); drop shadows added to `PlayerView`. Two lessons baked in: (1) the shear centers on the **followed player's render position**, not the camera midpoint — at map bounds the clamped camera de-centers and camera-centered shear makes wall tops overhang (hide) your own player; (2) a low-alpha "ghost" copy renders **above the fog** via an opaque RenderTexture stamp faded once with `setAlpha` (`GHOST_ALPHA`) — without it the effect is invisible (shear grows exactly where fog is), and per-shape translucency would alpha-stack every internal seam. F7 toggles back to the flat tilemap walls layer; sim untouched (golden replay hash unchanged). Also since (2026-07): **two more maps** — `de_cross` (contested central plaza, diagonal sites) and `de_docks` (east–west three-lane, stacked east sites) — generated layouts with a flood-fill connectivity audit run over all four maps.
 
